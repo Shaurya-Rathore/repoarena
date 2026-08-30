@@ -48,6 +48,59 @@ export type CommandEvidence = {
 	stderr: string;
 	timed_out: boolean;
 };
+export async function runArgv(
+	argv: string[],
+	cwd: string,
+	timeoutSeconds: number,
+): Promise<CommandEvidence> {
+	if (!argv.length)
+		throw new RepoArenaError("ATTEMPT_FAILED", "Command argv is required.");
+	const started = performance.now();
+	return new Promise((finish) => {
+		const child = spawn(argv[0] ?? "", argv.slice(1), {
+			cwd,
+			shell: false,
+			stdio: ["ignore", "pipe", "pipe"],
+			env: { PATH: process.env.PATH ?? "", REPOARENA_NETWORK_POLICY: "none" },
+		});
+		let stdout = "";
+		let stderr = "";
+		let timedOut = false;
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdout = limitOutput(stdout + chunk.toString());
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr = limitOutput(stderr + chunk.toString());
+		});
+		const timer = setTimeout(() => {
+			timedOut = true;
+			child.kill("SIGTERM");
+			setTimeout(() => child.kill("SIGKILL"), 1000).unref();
+		}, timeoutSeconds * 1000);
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			finish({
+				command: JSON.stringify(argv),
+				exit_code: code,
+				duration_ms: Math.round(performance.now() - started),
+				stdout,
+				stderr,
+				timed_out: timedOut,
+			});
+		});
+		child.on("error", (error) => {
+			clearTimeout(timer);
+			finish({
+				command: JSON.stringify(argv),
+				exit_code: null,
+				duration_ms: Math.round(performance.now() - started),
+				stdout,
+				stderr: limitOutput(`${stderr}${error.message}`),
+				timed_out: timedOut,
+			});
+		});
+	});
+}
 export type AttemptResult = {
 	id: string;
 	task_id: string;
@@ -115,11 +168,7 @@ export async function runShell(
 	});
 }
 async function git(root: string, args: string[]): Promise<string> {
-	const result = await runShell(
-		`git ${args.map((part) => JSON.stringify(part)).join(" ")}`,
-		root,
-		60,
-	);
+	const result = await runArgv(["git", ...args], root, 60);
 	if (result.exit_code !== 0)
 		throw new RepoArenaError(
 			"REPOSITORY_NOT_FOUND",
@@ -161,10 +210,13 @@ export async function runTask(options: {
 		}
 		const evidence: CommandEvidence[] = [];
 		for (const check of options.task.verification.required) {
-			const rendered = Array.isArray(check.command)
-				? check.command.map((part) => JSON.stringify(part)).join(" ")
-				: check.command.command;
-			const item = await runShell(rendered, workspace, check.timeout_seconds);
+			const item = Array.isArray(check.command)
+				? await runArgv(check.command, workspace, check.timeout_seconds)
+				: await runShell(
+						check.command.command,
+						workspace,
+						check.timeout_seconds,
+					);
 			evidence.push(item);
 			if (item.exit_code !== 0 || item.timed_out) break;
 		}
