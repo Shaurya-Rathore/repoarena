@@ -68,6 +68,9 @@ importers:
       '@repoarena/pricing':
         specifier: workspace:*
         version: link:../pricing
+      '@repoarena/reporter':
+        specifier: workspace:*
+        version: link:../reporter
       '@repoarena/run-store':
         specifier: workspace:*
         version: link:../run-store
