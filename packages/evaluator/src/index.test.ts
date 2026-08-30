@@ -18,7 +18,23 @@ it("rejects fatal integrity after passing tests", () => {
 				{ code: "TEST_DELETED", fatal: true, message: "Relevant test removed" },
 			],
 		}).reason,
-	).toBe("TEST_DELETED");
+	).toBe("INTEGRITY_VIOLATION");
+});
+it("keeps fatal regressions distinct from integrity", () => {
+	expect(
+		evaluate({
+			public_checks: [verification("p", "public", true)],
+			private_checks: [],
+			integrity: [],
+			regressions: [
+				{
+					code: "TEST_REGRESSION",
+					fatal: true,
+					message: "unrelated suite failed",
+				},
+			],
+		}),
+	).toMatchObject({ outcome: "UNSOLVED", reason: "REGRESSION" });
 });
 
 it("never serializes evaluator-private command evidence", () => {

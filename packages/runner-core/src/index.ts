@@ -377,7 +377,17 @@ export async function runIsolatedAttempt(options: {
 		}
 		const integrity = analyzeIntegrity(
 			diff.changedFiles,
-			options.integrityPolicy,
+			options.integrityPolicy ?? {
+				protected_paths: options.task.constraints.forbidden_paths,
+				verification_paths: [
+					"package.json",
+					"pnpm-workspace.yaml",
+					"vitest.config.ts",
+					"jest.config.js",
+				],
+				forbid_test_deletion: true,
+				forbid_verification_changes: true,
+			},
 		);
 		const evaluator = evaluate({
 			public_checks: publicEvidence.map((item, index) =>

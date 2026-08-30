@@ -97,3 +97,65 @@ it("collects an agent patch before isolated private verification", async () => {
 	expect(result.patch).toContain("fixed");
 	expect(JSON.stringify(result)).not.toContain(privateSentinel);
 });
+it("rejects test deletion even when public verification exits successfully", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-integrity-"));
+	dirs.push(root);
+	execFileSync("git", ["init"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+		cwd: root,
+	});
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+	await import("node:fs/promises").then(({ mkdir }) =>
+		mkdir(join(root, "test"), { recursive: true }),
+	);
+	await writeFile(
+		join(root, "test", "bug.test.js"),
+		"throw new Error('bug')\n",
+	);
+	execFileSync("git", ["add", "."], { cwd: root });
+	execFileSync("git", ["commit", "-m", "base"], { cwd: root });
+	const head = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: root,
+		encoding: "utf8",
+	}).trim();
+	const task = taskSchema.parse({
+		schema: "repoarena.task/v1",
+		id: "delete-tests",
+		title: "repair",
+		prompt: "repair",
+		source: { type: "imported", base_commit: head },
+		verification: {
+			required: [
+				{ id: "public", command: [process.execPath, "-e", "process.exit(0)"] },
+			],
+		},
+		provenance: {
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
+			created_by: "test",
+		},
+	});
+	const result = await runIsolatedAttempt({
+		root,
+		task,
+		agentArgv: [
+			process.execPath,
+			"-e",
+			"require('fs').unlinkSync('test/bug.test.js')",
+		],
+		privateData: {
+			task_id: task.id,
+			reference_commit: null,
+			reference_patch: null,
+			hidden_hook_source: null,
+			private_notes: [],
+		},
+	});
+	expect(result.evaluation).toMatchObject({
+		outcome: "UNSOLVED",
+		reason: "INTEGRITY_VIOLATION",
+	});
+	expect(result.evaluation.integrity.map((f) => f.code)).toContain(
+		"TEST_DELETED",
+	);
+});

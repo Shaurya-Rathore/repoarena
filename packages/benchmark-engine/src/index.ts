@@ -227,7 +227,7 @@ export async function runBenchmark(
 				})),
 				private_verification: raw.private_verification,
 				integrity: raw.evaluation.integrity,
-				regressions: [],
+				regressions: raw.evaluation.regressions,
 				evaluation: raw.evaluation,
 				usage,
 				cost,

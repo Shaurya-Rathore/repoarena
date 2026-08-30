@@ -22,10 +22,21 @@ export type IntegrityFinding = {
 
 export type FailureCode =
 	| "AGENT_FAILED"
+	| "AGENT_TIMEOUT"
 	| "HIDDEN_VERIFICATION_FAILED"
 	| "INFRASTRUCTURE_FAILED"
+	| "INTEGRITY_VIOLATION"
 	| "PUBLIC_VERIFICATION_FAILED"
 	| "REGRESSION";
+export type RegressionFinding = Readonly<{
+	code:
+		| "BUILD_REGRESSION"
+		| "TEST_REGRESSION"
+		| "SETUP_REGRESSION"
+		| "HIDDEN_REGRESSION";
+	fatal: boolean;
+	message: string;
+}>;
 
 /** Evaluator-only data; this type has no public serializer. */
 export type PrivateEvaluationEvidence = Readonly<{
@@ -38,16 +49,19 @@ export type EvaluationInput = {
 	public_checks: VerificationResult[];
 	private_checks: readonly VerificationResult[];
 	integrity: readonly IntegrityFinding[];
+	regressions?: readonly RegressionFinding[];
 	infrastructure_failure?: boolean;
 	agent_failure?: boolean;
+	agent_timeout?: boolean;
 };
 export type EvaluationResult = {
 	schema: "repoarena.evaluation/v1";
 	outcome: "SOLVED" | "UNSOLVED" | "INFRASTRUCTURE_FAILURE";
-	reason: FailureCode | IntegrityFinding["code"] | null;
+	reason: FailureCode | null;
 	public: { passed: number; failed: number };
 	hidden: { passed: number; failed: number };
 	integrity: IntegrityFinding[];
+	regressions: RegressionFinding[];
 	evidence_hash: string;
 };
 
@@ -59,27 +73,39 @@ export type PublicEvaluationResult = Readonly<{
 	public: EvaluationResult["public"];
 	hidden: EvaluationResult["hidden"];
 	integrity: readonly IntegrityFinding[];
+	regressions: readonly RegressionFinding[];
 	evidence_hash: string;
 }>;
 export function evaluate(input: EvaluationInput): EvaluationResult {
 	const pub = input.public_checks.filter((c) => !c.passed);
 	const hidden = input.private_checks.filter((c) => !c.passed);
 	const fatal = input.integrity.find((f) => f.fatal);
+	const regression = input.regressions?.find((f) => f.fatal);
 	const outcome = input.infrastructure_failure
 		? "INFRASTRUCTURE_FAILURE"
-		: pub.length || hidden.length || fatal || input.agent_failure
+		: pub.length ||
+				hidden.length ||
+				fatal ||
+				regression ||
+				input.agent_failure ||
+				input.agent_timeout
 			? "UNSOLVED"
 			: "SOLVED";
 	const reason = input.infrastructure_failure
 		? "INFRASTRUCTURE_FAILED"
-		: (fatal?.code ??
-			(pub.length
-				? "PUBLIC_VERIFICATION_FAILED"
-				: hidden.length
-					? "HIDDEN_VERIFICATION_FAILED"
-					: input.agent_failure
-						? "AGENT_FAILED"
-						: null));
+		: pub.length
+			? "PUBLIC_VERIFICATION_FAILED"
+			: hidden.length
+				? "HIDDEN_VERIFICATION_FAILED"
+				: regression
+					? "REGRESSION"
+					: fatal
+						? "INTEGRITY_VIOLATION"
+						: input.agent_timeout
+							? "AGENT_TIMEOUT"
+							: input.agent_failure
+								? "AGENT_FAILED"
+								: null;
 	return {
 		schema: "repoarena.evaluation/v1",
 		outcome,
@@ -97,10 +123,12 @@ export function evaluate(input: EvaluationInput): EvaluationResult {
 			fatal: f.fatal,
 			message: f.message,
 		})),
+		regressions: (input.regressions ?? []).map((finding) => ({ ...finding })),
 		evidence_hash: contentHash({
 			public: input.public_checks.map((c) => [c.id, c.passed, c.evidence_hash]),
 			private: input.private_checks.map((c) => [c.id, c.passed]),
 			integrity: input.integrity.map((f) => [f.code, f.fatal]),
+			regressions: (input.regressions ?? []).map((f) => [f.code, f.fatal]),
 		}),
 	};
 }
@@ -114,6 +142,7 @@ export function toPublicEvaluationResult(
 			fatal: f.fatal,
 			message: f.message,
 		})),
+		regressions: result.regressions.map((finding) => ({ ...finding })),
 	};
 }
 export function verification(

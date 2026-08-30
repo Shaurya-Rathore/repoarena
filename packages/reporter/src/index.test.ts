@@ -47,6 +47,7 @@ const attempt: PersistedAttempt = {
 		public: { passed: 1, failed: 0 },
 		hidden: { passed: 1, failed: 0 },
 		integrity: [],
+		regressions: [],
 		evidence_hash: "v".repeat(64),
 	},
 	usage: { status: "AVAILABLE", input_tokens: 1 },
