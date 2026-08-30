@@ -1,0 +1,97 @@
+import { spawn } from "node:child_process";
+import { realpath } from "node:fs/promises";
+import { relative, resolve } from "node:path";
+export type NetworkPolicy = "DISABLED" | "ALLOWLIST" | "UNRESTRICTED";
+export type SandboxCommand = {
+	argv: string[];
+	cwd: string;
+	env: Record<string, string>;
+	timeout_seconds: number;
+};
+export type SandboxResult = {
+	argv: string[];
+	cwd: string;
+	stdout: string;
+	stderr: string;
+	exit_code: number | null;
+	signal: string | null;
+	timed_out: boolean;
+	duration_ms: number;
+};
+export interface SandboxProvider {
+	readonly id: string;
+	capabilities(): {
+		network_enforced: boolean;
+		isolation: "process" | "container";
+	};
+	execute(command: SandboxCommand): Promise<SandboxResult>;
+}
+export class LocalSandboxProvider implements SandboxProvider {
+	readonly id = "local";
+	capabilities = () => ({
+		network_enforced: false,
+		isolation: "process" as const,
+	});
+	constructor(
+		private readonly root: string,
+		private readonly maxOutput = 100_000,
+	) {}
+	async execute(command: SandboxCommand): Promise<SandboxResult> {
+		const root = await realpath(this.root),
+			cwd = await realpath(command.cwd);
+		if (relative(root, cwd).startsWith(".."))
+			throw new Error("Sandbox cwd escapes root");
+		if (!command.argv.length) throw new Error("Sandbox argv required");
+		return new Promise((resolveResult) => {
+			const started = performance.now(),
+				child = spawn(command.argv[0] ?? "", command.argv.slice(1), {
+					cwd,
+					env: { PATH: process.env.PATH ?? "", ...command.env },
+					stdio: ["ignore", "pipe", "pipe"],
+					shell: false,
+				});
+			let stdout = "",
+				stderr = "",
+				timed = false;
+			const append = (old: string, value: string) => {
+				const next = old + value;
+				return next.length > this.maxOutput
+					? `${next.slice(0, this.maxOutput)}\n[output truncated]`
+					: next;
+			};
+			child.stdout.on("data", (c) => (stdout = append(stdout, String(c))));
+			child.stderr.on("data", (c) => (stderr = append(stderr, String(c))));
+			const timer = setTimeout(() => {
+				timed = true;
+				child.kill("SIGTERM");
+				setTimeout(() => child.kill("SIGKILL"), 1000).unref();
+			}, command.timeout_seconds * 1000);
+			child.on("error", (e) => {
+				clearTimeout(timer);
+				resolveResult({
+					argv: command.argv,
+					cwd,
+					stdout,
+					stderr: append(stderr, e.message),
+					exit_code: null,
+					signal: null,
+					timed_out: timed,
+					duration_ms: Math.round(performance.now() - started),
+				});
+			});
+			child.on("close", (code, signal) => {
+				clearTimeout(timer);
+				resolveResult({
+					argv: command.argv,
+					cwd,
+					stdout,
+					stderr,
+					exit_code: code,
+					signal,
+					timed_out: timed,
+					duration_ms: Math.round(performance.now() - started),
+				});
+			});
+		});
+	}
+}

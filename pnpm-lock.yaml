@@ -135,6 +135,12 @@ importers:
         specifier: workspace:*
         version: link:../task-spec
 
+  packages/sandbox-local:
+    dependencies:
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/statistics: {}
 
   packages/task-discovery:
