@@ -220,6 +220,9 @@ importers:
       '@repoarena/integrity':
         specifier: workspace:*
         version: link:../integrity
+      '@repoarena/pricing':
+        specifier: workspace:*
+        version: link:../pricing
       '@repoarena/redaction':
         specifier: workspace:*
         version: link:../redaction

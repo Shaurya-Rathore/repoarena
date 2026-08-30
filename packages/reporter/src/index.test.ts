@@ -61,6 +61,7 @@ const attempt: PersistedAttempt = {
 	},
 	failure: null,
 	retries: [],
+	artifacts: [],
 };
 const run: PersistedRun = {
 	schema: "repoarena.benchmark-run/v1",
