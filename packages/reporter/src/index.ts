@@ -83,5 +83,5 @@ export function toJunit(run: PersistedRun): string {
 				: `<testcase name="${name}" time="${a.duration_ms / 1000}"><failure message="${message}"/></testcase>`;
 		})
 		.join("");
-	return `<?xml version="1.0" encoding="UTF-8"?><testsuite name="RepoArena ${escapeXml(run.id)}" tests="${run.attempts.length}" failures="${failures}" errors="${errors}">${cases}</testsuite>\n`;
+	return `<?xml version="1.0" encoding="UTF-8"?><testsuite name="RepoArena ${escapeXml(run.id)}" tests="${run.attempts.length}" failures="${failures}" errors="${errors}"><properties><property name="solved_count" value="${run.statistics.solved_count}"/><property name="total_cost_micros" value="${run.statistics.total_cost_micros ?? "unavailable"}"/></properties>${cases}</testsuite>\n`;
 }

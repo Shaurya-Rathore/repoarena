@@ -9,6 +9,6 @@ This is the working checklist for the final connected-engine verification.
 - [x] Persisted run recovery inspection distinguishes corrupt/running/terminal state and requires clean restart for interrupted runs.
 - [ ] Baseline regression inventory and expanded anti-cheating matrix.
 - [ ] Full fake-agent/security E2E matrix through the built CLI.
-- [ ] Cross-reporter cost/reprovenance reload test.
+- [x] Cross-reporter historical-cost reload test across terminal/JSON/HTML/JUnit and catalog replacement.
 - [ ] Docker daemon integration (environment-gated; daemon unavailable here).
 - [x] Aggregate duration variance, standard deviation, percentiles and 95% confidence interval are emitted from benchmark attempt evidence.

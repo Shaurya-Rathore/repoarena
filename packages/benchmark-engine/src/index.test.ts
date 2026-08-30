@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { taskSchema } from "@repoarena/task-spec";
 import { runArgv } from "@repoarena/runner-core";
+import { loadRun } from "@repoarena/run-store";
+import { toHtml, toJson, toJunit, toTerminal } from "@repoarena/reporter";
 import { BenchmarkRetryError, runBenchmark } from "./index.js";
 
 const roots: string[] = [];
@@ -83,7 +85,7 @@ it("runs clean repetitions with bounded concurrency and persists cost", async ()
 					reference_commit: null,
 					reference_patch: hidden,
 					hidden_hook_source: null,
-					private_notes: [],
+					private_notes: [] as string[],
 				},
 				private_verifier: async (workspace) => {
 					await writeFile(join(workspace, ".hidden"), "ok");
@@ -229,4 +231,112 @@ it("retries transient provider failures without inflating statistical attempts",
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+it("keeps persisted historical cost when the active catalog changes", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-cost-reload-"));
+	roots.push(root);
+	execFileSync("git", ["init"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+		cwd: root,
+	});
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+	await writeFile(join(root, "subject.txt"), "base\n");
+	execFileSync("git", ["add", "."], { cwd: root });
+	execFileSync("git", ["commit", "-m", "base"], { cwd: root });
+	const head = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: root,
+		encoding: "utf8",
+	}).trim();
+	const task = taskSchema.parse({
+		schema: "repoarena.task/v1",
+		id: "cost-reload",
+		title: "cost",
+		prompt: "repair",
+		source: { type: "imported", base_commit: head },
+		verification: {
+			required: [
+				{ id: "public", command: [process.execPath, "-e", "process.exit(0)"] },
+			],
+		},
+		provenance: {
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
+			created_by: "test",
+		},
+	});
+	const state = join(root, "run.json");
+	const agent = {
+		id: "cost-agent",
+		version: "1",
+		model: "m",
+		provider: "p",
+		config_hash: "c",
+		usage: { input_tokens: 100, output_tokens: 20 },
+		execute: async (workspace: string) => {
+			await writeFile(join(workspace, "subject.txt"), "fixed\n");
+			return runArgv([process.execPath, "-e", "process.exit(0)"], workspace, 2);
+		},
+	};
+	const base = {
+		root,
+		repository: { commit: head, remote: null },
+		tasks: [
+			{
+				task,
+				private_data: {
+					task_id: task.id,
+					reference_commit: null,
+					reference_patch: null,
+					hidden_hook_source: null,
+					private_notes: [],
+				},
+			},
+		],
+		agents: [agent],
+		runs_per_task: 1,
+		parallelism: 1,
+		state_path: state,
+		runner_version: "test",
+	};
+	const v1 = await runBenchmark({
+		...base,
+		pricing: {
+			version: "v1",
+			prices: [
+				{
+					id: "v1-price",
+					provider: "p",
+					model: "m",
+					effective_from: "2025-01-01",
+					input_per_million: 1,
+					output_per_million: 2,
+					currency: "USD",
+				},
+			],
+		},
+	});
+	const old = await loadRun(state);
+	const oldReports = [toTerminal(old), toJson(old), toHtml(old), toJunit(old)];
+	const v2 = await runBenchmark({
+		...base,
+		pricing: {
+			version: "v2",
+			prices: [
+				{
+					id: "v2-price",
+					provider: "p",
+					model: "m",
+					effective_from: "2025-01-01",
+					input_per_million: 10,
+					output_per_million: 20,
+					currency: "USD",
+				},
+			],
+		},
+	});
+	expect(v1.attempts[0]?.cost.micros).toBe(140);
+	expect(old.attempts[0]?.cost.micros).toBe(140);
+	expect(v2.attempts[0]?.cost.micros).toBe(1400);
+		expect(oldReports.every((report) => report.includes("140"))).toBe(true);
 });

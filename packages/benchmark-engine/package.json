@@ -14,6 +14,7 @@
 		"@repoarena/artifacts": "workspace:*",
 		"@repoarena/pricing": "workspace:*",
 		"@repoarena/run-store": "workspace:*",
+		"@repoarena/reporter": "workspace:*",
 		"@repoarena/runner-core": "workspace:*",
 		"@repoarena/statistics": "workspace:*",
 		"@repoarena/task-spec": "workspace:*"
