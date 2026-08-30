@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { contentHash, RepoArenaError } from "@repoarena/core";
 import {
 	collectArtifactManifest,
@@ -141,6 +141,8 @@ const limitOutput = (text: string): string =>
 	text.length > 100_000
 		? `${text.slice(0, 100_000)}\n[output truncated]`
 		: text;
+const isTransientStoreFile = (entry: string): boolean =>
+	basename(entry).startsWith(".") && basename(entry).endsWith(".tmp");
 export async function runShell(
 	command: string,
 	cwd: string,
@@ -213,6 +215,7 @@ export async function runTask(options: {
 		await cp(source, workspace, {
 			recursive: true,
 			filter: (entry) =>
+				!isTransientStoreFile(entry) &&
 				!relative(source, entry).startsWith(".repoarena/state") &&
 				!relative(source, entry).startsWith("node_modules"),
 		});
@@ -327,6 +330,7 @@ export async function runIsolatedAttempt(options: {
 		await cp(resolve(options.root), agentWorkspace, {
 			recursive: true,
 			filter: (entry) =>
+				!isTransientStoreFile(entry) &&
 				!relative(options.root, entry).startsWith(".repoarena/state") &&
 				!relative(options.root, entry).startsWith(".repoarena/tasks") &&
 				!relative(options.root, entry).startsWith("node_modules"),

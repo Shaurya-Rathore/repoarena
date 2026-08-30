@@ -338,5 +338,117 @@ it("keeps persisted historical cost when the active catalog changes", async () =
 	expect(v1.attempts[0]?.cost.micros).toBe(140);
 	expect(old.attempts[0]?.cost.micros).toBe(140);
 	expect(v2.attempts[0]?.cost.micros).toBe(1400);
-		expect(oldReports.every((report) => report.includes("140"))).toBe(true);
+	expect(oldReports.every((report) => report.includes("140"))).toBe(true);
+});
+
+it("classifies adversarial agents through the connected evaluator pipeline", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-adversarial-"));
+	roots.push(root);
+	execFileSync("git", ["init"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+		cwd: root,
+	});
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+	await writeFile(join(root, "subject.txt"), "bug\n");
+	await import("node:fs/promises").then(({ mkdir }) =>
+		mkdir(join(root, "test")),
+	);
+	await writeFile(
+		join(root, "test", "behavior.test.js"),
+		"// protected regression test\n",
+	);
+	execFileSync("git", ["add", "."], { cwd: root });
+	execFileSync("git", ["commit", "-m", "base"], { cwd: root });
+	const head = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: root,
+		encoding: "utf8",
+	}).trim();
+	const task = taskSchema.parse({
+		schema: "repoarena.task/v1",
+		id: "adversarial",
+		title: "repair",
+		prompt: "repair",
+		source: { type: "imported", base_commit: head },
+		verification: {
+			required: [
+				{
+					id: "public",
+					command: [
+						process.execPath,
+						"-e",
+						"if(require('fs').readFileSync('subject.txt','utf8')!=='fixed\\n')process.exit(1)",
+					],
+				},
+			],
+		},
+		constraints: { forbidden_paths: [] },
+		provenance: {
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
+			created_by: "test",
+		},
+	});
+	const names = ["perfect", "wrong", "noop", "partial", "delete"];
+	const agents = names.map((id) => ({
+		id,
+		version: "1",
+		model: "fake",
+		provider: "fake",
+		config_hash: id,
+		execute: async (workspace: string) => {
+			if (id === "perfect") {
+				await writeFile(join(workspace, "subject.txt"), "fixed\n");
+				await writeFile(join(workspace, "private-marker"), "ok");
+			} else if (id === "partial")
+				await writeFile(join(workspace, "subject.txt"), "fixed\n");
+			else if (id === "wrong")
+				await writeFile(join(workspace, "subject.txt"), "wrong\n");
+			else if (id === "delete") {
+				await writeFile(join(workspace, "subject.txt"), "fixed\n");
+				await writeFile(join(workspace, "private-marker"), "ok");
+				await rm(join(workspace, "test", "behavior.test.js"), { force: true });
+			}
+			return runArgv([process.execPath, "-e", "process.exit(0)"], workspace, 2);
+		},
+	}));
+	const run = await runBenchmark({
+		root,
+		repository: { commit: head, remote: null },
+		tasks: [
+			{
+				task,
+				private_data: {
+					task_id: task.id,
+					reference_commit: null,
+					reference_patch: "private-reference",
+					hidden_hook_source: null,
+					private_notes: [],
+				},
+				private_verifier: async () => [
+					[
+						process.execPath,
+						"-e",
+						"if(require('fs').readFileSync('private-marker','utf8')!=='ok')process.exit(1)",
+					],
+				],
+			},
+		],
+		agents,
+		runs_per_task: 1,
+		parallelism: 3,
+		pricing: { version: "none", prices: [] },
+		state_path: join(root, ".repoarena", "state", "runs", "run.json"),
+		runner_version: "test",
+	});
+	const outcomes = Object.fromEntries(
+		run.attempts.map((attempt) => [
+			attempt.agent.id,
+			[attempt.evaluation.outcome, attempt.evaluation.reason],
+		]),
+	);
+	expect(outcomes.perfect).toEqual(["SOLVED", null]);
+	expect(outcomes.partial).toEqual(["UNSOLVED", "HIDDEN_VERIFICATION_FAILED"]);
+	expect(outcomes.wrong?.[0]).toBe("UNSOLVED");
+	expect(outcomes.noop?.[0]).toBe("UNSOLVED");
+	expect(outcomes.delete).toEqual(["UNSOLVED", "INTEGRITY_VIOLATION"]);
 });
