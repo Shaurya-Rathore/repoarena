@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
 	loadRun,
+	inspectRunRecovery,
 	serializeRun,
 	writeRunAtomic,
 	type PersistedRun,
@@ -69,4 +70,14 @@ it("classifies corrupt state", async () => {
 	const path = join(root, "run.json");
 	await writeFile(path, "{broken");
 	await expect(loadRun(path)).rejects.toThrow("corrupt or unsupported");
+});
+it("plans clean recovery while preserving completed attempts", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-run-store-"));
+	roots.push(root);
+	const path = join(root, "run.json");
+	await writeRunAtomic(path, { ...run(), status: "RUNNING" });
+	const plan = await inspectRunRecovery(path);
+	expect(plan.status).toBe("RUNNING");
+	expect(plan.needs_clean_restart).toBe(true);
+	expect(plan.completed_attempt_ids).toEqual([]);
 });

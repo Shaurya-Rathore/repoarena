@@ -146,3 +146,35 @@ export async function loadRun(path: string): Promise<PersistedRun> {
 		);
 	}
 }
+
+export type RunRecoveryPlan = Readonly<{
+	status: "COMPLETED" | "RUNNING" | "FAILED" | "CANCELLED" | "CORRUPT";
+	completed_attempt_ids: readonly string[];
+	needs_clean_restart: boolean;
+	message?: string;
+}>;
+
+/** Inspect persisted state without trusting an interrupted workspace. */
+export async function inspectRunRecovery(
+	path: string,
+): Promise<RunRecoveryPlan> {
+	try {
+		const run = await loadRun(path);
+		return {
+			status: run.status,
+			completed_attempt_ids: run.attempts
+				.filter((attempt) => attempt.state === "COMPLETED")
+				.map((attempt) => attempt.id)
+				.sort(),
+			needs_clean_restart: run.status === "RUNNING",
+		};
+	} catch (error) {
+		return {
+			status: "CORRUPT",
+			completed_attempt_ids: [],
+			needs_clean_restart: true,
+			message:
+				error instanceof RepoArenaError ? error.message : "Corrupt run state.",
+		};
+	}
+}
