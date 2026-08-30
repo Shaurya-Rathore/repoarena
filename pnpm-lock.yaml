@@ -104,6 +104,12 @@ importers:
 
   packages/core: {}
 
+  packages/evaluator:
+    dependencies:
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/git:
     dependencies:
       '@repoarena/core':

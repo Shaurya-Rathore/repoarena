@@ -14,7 +14,7 @@ this workspace; all other states are deliberately conservative.
 | Runner lifecycle and local state | IN_PROGRESS | `packages/runner-core`; no dedicated test | `pnpm --filter @repoarena/runner-core typecheck` | Minimal workspace command runner exists. Add state machine, recovery, artifacts, cancellation, cache and SQLite state. |
 | Sandbox and execution security | IN_PROGRESS | `packages/sandbox-local`, `packages/sandbox-docker`, `packages/redaction` | focused sandbox/redaction tests | Local bounded process sandbox and restrictive Docker argv provider are tested; Docker daemon is unavailable locally. Wire providers/artifact and evaluator boundaries into runner. |
 | Agent adapter SDK and Codex/Claude/Gemini/OpenCode adapters | NOT_STARTED | — | — | Implement common protocol, capability probes, production integrations, fake adapter and conformance suite. |
-| Evaluation, metrics and statistics | NOT_STARTED | — | — | Implement evaluator, normalized outcomes, pass@k, confidence, reliability and evidence. |
+| Evaluation, metrics and statistics | IN_PROGRESS | `packages/evaluator`; evaluator behavior/privacy tests | `pnpm --filter @repoarena/evaluator test:unit && pnpm --filter @repoarena/evaluator typecheck` | Behavior-based decision table and explicit safe public projection pass. Wire trusted runner evidence, private evaluator lifecycle, regression/integrity engines and aggregation. |
 | Pricing and cost accounting | NOT_STARTED | — | — | Implement versioned catalog, usage normalization and cost reports. |
 | Reporting | IN_PROGRESS | `packages/reporter`; no dedicated test | `pnpm --filter @repoarena/reporter typecheck` | Safe minimal HTML exists. Add terminal, JUnit, comparison, cost and rank reports. |
 | Repository readiness | IN_PROGRESS | `packages/readiness`; no dedicated test | `repoarena doctor --json` | Four dimensions exist. Add all documented evidence dimensions and tests. |
@@ -36,7 +36,6 @@ this workspace; all other states are deliberately conservative.
 
 ## Environment constraints
 
-The sandbox allows reading `.git` but rejects creation/writes to it. Git
-behavior will be implemented and tested through injectable process fixtures;
-atomic intended commits are recorded in `commit-plan.md` until the restriction
-changes.
+Git writes are available on the active feature branch. Docker CLI is installed,
+but its daemon is unavailable locally; live Docker integration is consequently
+blocked by the environment while provider contract tests remain required.

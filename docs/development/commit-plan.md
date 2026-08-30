@@ -7,3 +7,4 @@
 | `feat(git): add deterministic repository boundary` | `packages/git`, lockfile | Safe argv-only Git APIs and temporary repository fixtures | `pnpm --filter @repoarena/git test:unit` |
 | `feat(tasks): add historical task mining foundation` | task spec, discovery, reconstruction, leakage, validation, CLI | Canonical task v1 and initial historical task workflow | `pnpm verify` |
 | `feat(execution): add sandbox providers and redaction` | sandbox-local, sandbox-docker, redaction | Isolated command execution, Docker contract, secret redaction | focused sandbox/redaction tests |
+| `feat(evaluator): add behavior-based result boundary` | `packages/evaluator`, lockfile, implementation ledger | Decide from public/private behavioral evidence and prevent private command evidence from entering public result structures | `pnpm --filter @repoarena/evaluator build && pnpm --filter @repoarena/evaluator test:unit && pnpm --filter @repoarena/evaluator typecheck` |
