@@ -200,9 +200,12 @@ export async function runBenchmark(
 					network_policy: job.t.task.execution.network.mode,
 				},
 				state:
-					raw.evaluation.outcome === "INFRASTRUCTURE_FAILURE"
-						? "FAILED"
-						: "COMPLETED",
+					raw.state_history.at(-1)?.state === "TIMED_OUT"
+						? "TIMED_OUT"
+						: raw.state_history.at(-1)?.state === "FAILED" ||
+								raw.evaluation.outcome === "INFRASTRUCTURE_FAILURE"
+							? "FAILED"
+							: "COMPLETED",
 				state_history: raw.state_history,
 				started_at: started.toISOString(),
 				ended_at: ended.toISOString(),

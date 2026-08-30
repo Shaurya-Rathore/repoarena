@@ -314,14 +314,14 @@ export async function runIsolatedAttempt(options: {
 					agentWorkspace,
 					options.task.execution.timeout_seconds,
 				);
-		if (agent.timed_out) move("TIMED_OUT");
 		if (agent.exit_code !== 0 || agent.timed_out) {
-			move("FAILED");
+			move(agent.timed_out ? "TIMED_OUT" : "FAILED");
 			const result = evaluate({
 				public_checks: [],
 				private_checks: [],
 				integrity: [],
-				agent_failure: true,
+				agent_failure: !agent.timed_out,
+				agent_timeout: agent.timed_out,
 			});
 			return {
 				schema: "repoarena.attempt/v1",
