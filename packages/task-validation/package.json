@@ -1,5 +1,5 @@
 {
-	"name": "@repoarena/task-spec",
+	"name": "@repoarena/task-validation",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -10,8 +10,8 @@
 		"test:unit": "vitest run --passWithNoTests"
 	},
 	"dependencies": {
-		"@repoarena/core": "workspace:*",
-		"yaml": "2.6.1",
-		"zod": "3.24.1"
+		"@repoarena/git": "workspace:*",
+		"@repoarena/leakage": "workspace:*",
+		"@repoarena/task-spec": "workspace:*"
 	}
 }

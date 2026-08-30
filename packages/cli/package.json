@@ -13,6 +13,10 @@
 	"dependencies": {
 		"@repoarena/config": "workspace:*",
 		"@repoarena/core": "workspace:*",
+		"@repoarena/git": "workspace:*",
+		"@repoarena/task-discovery": "workspace:*",
+		"@repoarena/task-reconstruction": "workspace:*",
+		"@repoarena/task-validation": "workspace:*",
 		"@repoarena/readiness": "workspace:*",
 		"@repoarena/reporter": "workspace:*",
 		"@repoarena/runner-core": "workspace:*",

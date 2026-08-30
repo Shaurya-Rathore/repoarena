@@ -29,6 +29,9 @@ importers:
       '@repoarena/core':
         specifier: workspace:*
         version: link:../core
+      '@repoarena/git':
+        specifier: workspace:*
+        version: link:../git
       '@repoarena/readiness':
         specifier: workspace:*
         version: link:../readiness
@@ -38,9 +41,18 @@ importers:
       '@repoarena/runner-core':
         specifier: workspace:*
         version: link:../runner-core
+      '@repoarena/task-discovery':
+        specifier: workspace:*
+        version: link:../task-discovery
+      '@repoarena/task-reconstruction':
+        specifier: workspace:*
+        version: link:../task-reconstruction
       '@repoarena/task-spec':
         specifier: workspace:*
         version: link:../task-spec
+      '@repoarena/task-validation':
+        specifier: workspace:*
+        version: link:../task-validation
       commander:
         specifier: 12.1.0
         version: 12.1.0
@@ -68,6 +80,12 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/leakage:
+    dependencies:
+      '@repoarena/task-spec':
+        specifier: workspace:*
+        version: link:../task-spec
+
   packages/readiness: {}
 
   packages/reporter:
@@ -85,14 +103,47 @@ importers:
         specifier: workspace:*
         version: link:../task-spec
 
+  packages/task-discovery:
+    dependencies:
+      '@repoarena/git':
+        specifier: workspace:*
+        version: link:../git
+
+  packages/task-reconstruction:
+    dependencies:
+      '@repoarena/git':
+        specifier: workspace:*
+        version: link:../git
+      '@repoarena/leakage':
+        specifier: workspace:*
+        version: link:../leakage
+      '@repoarena/task-spec':
+        specifier: workspace:*
+        version: link:../task-spec
+
   packages/task-spec:
     dependencies:
       '@repoarena/core':
         specifier: workspace:*
         version: link:../core
+      yaml:
+        specifier: 2.6.1
+        version: 2.6.1
       zod:
         specifier: 3.24.1
         version: 3.24.1
+
+  packages/task-validation:
+    dependencies:
+      '@repoarena/git':
+        specifier: workspace:*
+        version: link:../git
+      '@repoarena/leakage':
+        specifier: workspace:*
+        version: link:../leakage
+      '@repoarena/task-spec':
+        specifier: workspace:*
+        version: link:../task-spec
 
 packages:
 

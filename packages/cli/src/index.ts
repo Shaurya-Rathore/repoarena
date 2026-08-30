@@ -5,10 +5,14 @@ import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "@repoarena/config";
 import { RepoArenaError } from "@repoarena/core";
+import { GitRepository } from "@repoarena/git";
 import { assessRepository } from "@repoarena/readiness";
 import { toHtml } from "@repoarena/reporter";
 import { loadTask, runTask } from "@repoarena/runner-core";
 import { taskSchema } from "@repoarena/task-spec";
+import { discover } from "@repoarena/task-discovery";
+import { reconstructHistoricalTask } from "@repoarena/task-reconstruction";
+import { validateHistoricalTask } from "@repoarena/task-validation";
 import { parse, stringify } from "yaml";
 
 const root = process.cwd();
@@ -101,6 +105,177 @@ tasks
 			}),
 		);
 		output(values, options.json);
+	});
+tasks
+	.command("discover")
+	.option("--limit <count>", "maximum candidates", "50")
+	.option("--json")
+	.action(async (options) => {
+		await ensureGit();
+		const candidates = await discover(new GitRepository(root), {
+			limit: Number(options.limit),
+		});
+		output(candidates, options.json);
+	});
+tasks
+	.command("generate <candidate>")
+	.option("--json")
+	.action(async (candidate, options) => {
+		await ensureGit();
+		const result = await reconstructHistoricalTask(
+			new GitRepository(root),
+			candidate,
+		);
+		await mkdir(taskDir(), { recursive: true });
+		await mkdir(join(root, ".repoarena", "state", "private"), {
+			recursive: true,
+		});
+		const path = join(taskDir(), `${result.task.id}.yaml`);
+		await writeFile(path, stringify(result.task));
+		await writeFile(
+			join(root, ".repoarena", "state", "private", `${result.task.id}.json`),
+			JSON.stringify(result.privateData),
+		);
+		output(
+			{
+				task: path,
+				leakage_safe: result.leakageSafe,
+				diagnostics: result.diagnostics,
+			},
+			options.json,
+		);
+		if (!result.leakageSafe) process.exitCode = 7;
+	});
+tasks
+	.command("inspect <id>")
+	.option("--json")
+	.action(async (id, options) => {
+		const found = (await paths()).find(
+			(path) =>
+				path.endsWith(`/${id}.yaml`) ||
+				path.endsWith(`/${id}.yml`) ||
+				path.endsWith(`/${id}.json`),
+		);
+		if (!found)
+			throw new RepoArenaError("TASK_INVALID", `Task ${id} was not found.`);
+		output(await taskFromPath(found), options.json);
+	});
+tasks
+	.command("format <id>")
+	.option("--json")
+	.action(async (id, options) => {
+		const found = (await paths()).find(
+			(path) =>
+				path.endsWith(`/${id}.yaml`) ||
+				path.endsWith(`/${id}.yml`) ||
+				path.endsWith(`/${id}.json`),
+		);
+		if (!found)
+			throw new RepoArenaError("TASK_INVALID", `Task ${id} was not found.`);
+		const task = await taskFromPath(found);
+		await writeFile(found, stringify(task));
+		output({ formatted: found }, options.json);
+	});
+tasks
+	.command("migrate <input>")
+	.option("--output <path>")
+	.option("--json")
+	.action(async (input, options) => {
+		const { parseTaskDocument, serializeTask } = await import(
+			"@repoarena/task-spec"
+		);
+		const text = await readFile(resolve(root, input), "utf8");
+		const migrated = parseTaskDocument(
+			text,
+			input.endsWith(".json") ? "json" : "yaml",
+		);
+		const target = resolve(root, options.output ?? input);
+		await writeFile(target, serializeTask(migrated.task));
+		output(
+			{ migrated: target, diagnostics: migrated.diagnostics },
+			options.json,
+		);
+	});
+tasks
+	.command("import <input>")
+	.option("--json")
+	.action(async (input, options) => {
+		const { parseTaskDocument, serializeTask } = await import(
+			"@repoarena/task-spec"
+		);
+		const absolute = resolve(root, input);
+		const migrated = parseTaskDocument(
+			await readFile(absolute, "utf8"),
+			absolute.endsWith(".json") ? "json" : "yaml",
+		);
+		await mkdir(taskDir(), { recursive: true });
+		const target = join(taskDir(), `${migrated.task.id}.yaml`);
+		try {
+			await stat(target);
+			throw new RepoArenaError(
+				"TASK_INVALID",
+				`Task ${migrated.task.id} already exists.`,
+			);
+		} catch (error) {
+			if (error instanceof RepoArenaError) throw error;
+		}
+		await writeFile(target, serializeTask(migrated.task));
+		output(
+			{ imported: target, diagnostics: migrated.diagnostics },
+			options.json,
+		);
+	});
+tasks
+	.command("export <id>")
+	.requiredOption("--output <path>")
+	.option("--json")
+	.action(async (id, options) => {
+		const found = (await paths()).find(
+			(path) =>
+				path.endsWith(`/${id}.yaml`) ||
+				path.endsWith(`/${id}.yml`) ||
+				path.endsWith(`/${id}.json`),
+		);
+		if (!found)
+			throw new RepoArenaError("TASK_INVALID", `Task ${id} was not found.`);
+		const target = resolve(root, options.output);
+		if (!target.startsWith(`${root}/`))
+			throw new RepoArenaError(
+				"TASK_INVALID",
+				"Export path must remain inside the repository.",
+			);
+		await writeFile(target, stringify(await taskFromPath(found)));
+		output({ exported: target }, options.json);
+	});
+tasks
+	.command("validate-history <id>")
+	.option("--json")
+	.action(async (id, options) => {
+		await ensureGit();
+		const found = (await paths()).find(
+			(path) =>
+				path.endsWith(`/${id}.yaml`) ||
+				path.endsWith(`/${id}.yml`) ||
+				path.endsWith(`/${id}.json`),
+		);
+		if (!found)
+			throw new RepoArenaError("TASK_INVALID", `Task ${id} was not found.`);
+		const task = await taskFromPath(found);
+		const privatePath = join(
+			root,
+			".repoarena",
+			"state",
+			"private",
+			`${id}.json`,
+		);
+		const result = await validateHistoricalTask(
+			new GitRepository(root),
+			task,
+			JSON.parse(await readFile(privatePath, "utf8")),
+		);
+		output(result, options.json);
+		if (result.status !== "READY")
+			process.exitCode = result.status === "BLOCKED" ? 6 : 7;
 	});
 tasks
 	.command("validate [ids...]")

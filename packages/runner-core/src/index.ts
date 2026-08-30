@@ -126,11 +126,10 @@ export async function runTask(options: {
 		}
 		const evidence: CommandEvidence[] = [];
 		for (const check of options.task.verification.required) {
-			const item = await runShell(
-				check.command,
-				workspace,
-				check.timeout_seconds,
-			);
+			const rendered = Array.isArray(check.command)
+				? check.command.map((part) => JSON.stringify(part)).join(" ")
+				: check.command.command;
+			const item = await runShell(rendered, workspace, check.timeout_seconds);
 			evidence.push(item);
 			if (item.exit_code !== 0 || item.timed_out) break;
 		}
@@ -156,7 +155,7 @@ export async function runTask(options: {
 			provenance: {
 				task_hash: contentHash(options.task),
 				workspace,
-				network_policy: options.task.constraints.network,
+				network_policy: options.task.execution.network.mode,
 			},
 		};
 		return result;
