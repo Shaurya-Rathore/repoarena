@@ -1,5 +1,6 @@
 import {
 	detectExecutable,
+	runAdapterCommand,
 	type AgentAdapter,
 	type AdapterResult,
 } from "@repoarena/adapter-sdk";
@@ -13,17 +14,11 @@ export class OpenCodeAdapter implements AgentAdapter {
 		timeout_seconds: number;
 		env: Record<string, string>;
 	}): Promise<AdapterResult> {
-		return {
-			agent: this.id,
-			version: null,
-			model: i.model ?? null,
-			usage: null,
-			reported_cost_micros: null,
-			stdout: "",
-			stderr: "OpenCode execution requires the installed opencode CLI.",
-			exit_code: null,
-			timed_out: false,
-			metadata: { command: ["opencode", "run", i.prompt] },
-		};
+		return runAdapterCommand(
+			this.id,
+			"opencode",
+			["run", i.prompt, ...(i.model ? ["--model", i.model] : [])],
+			i,
+		);
 	}
 }

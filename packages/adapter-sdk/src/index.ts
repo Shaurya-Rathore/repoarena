@@ -58,3 +58,73 @@ export async function detectExecutable(name: string): Promise<Detection> {
 		);
 	});
 }
+
+export async function runAdapterCommand(
+	agent: string,
+	executable: string,
+	args: string[],
+	input: {
+		cwd: string;
+		model?: string;
+		timeout_seconds: number;
+		env: Record<string, string>;
+	},
+): Promise<AdapterResult> {
+	const { spawn } = await import("node:child_process");
+	return new Promise((resolve) => {
+		const child = spawn(executable, args, {
+			cwd: input.cwd,
+			env: { PATH: process.env.PATH ?? "", ...input.env },
+			stdio: ["ignore", "pipe", "pipe"],
+			shell: false,
+		});
+		let stdout = "";
+		let stderr = "";
+		let timedOut = false;
+		const bounded = (value: string) =>
+			value.length > 100_000
+				? `${value.slice(0, 100_000)}\n[output truncated]`
+				: value;
+		child.stdout.on("data", (chunk) => {
+			stdout = bounded(stdout + String(chunk));
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr = bounded(stderr + String(chunk));
+		});
+		const timer = setTimeout(() => {
+			timedOut = true;
+			child.kill("SIGTERM");
+			setTimeout(() => child.kill("SIGKILL"), 1_000).unref();
+		}, input.timeout_seconds * 1_000);
+		child.on("error", (error) => {
+			clearTimeout(timer);
+			resolve({
+				agent,
+				version: null,
+				model: input.model ?? null,
+				usage: null,
+				reported_cost_micros: null,
+				stdout,
+				stderr: bounded(`${stderr}${error.message}`),
+				exit_code: null,
+				timed_out: false,
+				metadata: { unavailable: true },
+			});
+		});
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			resolve({
+				agent,
+				version: null,
+				model: input.model ?? null,
+				usage: null,
+				reported_cost_micros: null,
+				stdout,
+				stderr,
+				exit_code: code,
+				timed_out: timedOut,
+				metadata: { argv: [executable, ...args] },
+			});
+		});
+	});
+}
