@@ -21,6 +21,36 @@ importers:
         specifier: 2.1.8
         version: 2.1.8(@types/node@24.10.1)
 
+  packages/adapter-sdk:
+    dependencies:
+      '@repoarena/pricing':
+        specifier: workspace:*
+        version: link:../pricing
+
+  packages/adapters/claude-code:
+    dependencies:
+      '@repoarena/adapter-sdk':
+        specifier: workspace:*
+        version: link:../../adapter-sdk
+
+  packages/adapters/codex:
+    dependencies:
+      '@repoarena/adapter-sdk':
+        specifier: workspace:*
+        version: link:../../adapter-sdk
+
+  packages/adapters/gemini-cli:
+    dependencies:
+      '@repoarena/adapter-sdk':
+        specifier: workspace:*
+        version: link:../../adapter-sdk
+
+  packages/adapters/opencode:
+    dependencies:
+      '@repoarena/adapter-sdk':
+        specifier: workspace:*
+        version: link:../../adapter-sdk
+
   packages/cli:
     dependencies:
       '@repoarena/config':
@@ -86,6 +116,8 @@ importers:
         specifier: workspace:*
         version: link:../task-spec
 
+  packages/pricing: {}
+
   packages/readiness: {}
 
   packages/reporter:
@@ -102,6 +134,8 @@ importers:
       '@repoarena/task-spec':
         specifier: workspace:*
         version: link:../task-spec
+
+  packages/statistics: {}
 
   packages/task-discovery:
     dependencies:

@@ -5,6 +5,41 @@ import { join, relative, resolve } from "node:path";
 import { contentHash, RepoArenaError } from "@repoarena/core";
 import type { Task } from "@repoarena/task-spec";
 
+export type AttemptState =
+	| "QUEUED"
+	| "PREPARING"
+	| "SETUP"
+	| "AGENT_RUNNING"
+	| "VERIFYING"
+	| "COLLECTING"
+	| "COMPLETED"
+	| "FAILED"
+	| "CANCELLED"
+	| "TIMED_OUT";
+const transitions: Record<AttemptState, readonly AttemptState[]> = {
+	QUEUED: ["PREPARING", "CANCELLED"],
+	PREPARING: ["SETUP", "FAILED", "TIMED_OUT", "CANCELLED"],
+	SETUP: ["AGENT_RUNNING", "FAILED", "TIMED_OUT", "CANCELLED"],
+	AGENT_RUNNING: ["VERIFYING", "FAILED", "TIMED_OUT", "CANCELLED"],
+	VERIFYING: ["COLLECTING", "FAILED", "TIMED_OUT", "CANCELLED"],
+	COLLECTING: ["COMPLETED", "FAILED"],
+	COMPLETED: [],
+	FAILED: [],
+	CANCELLED: [],
+	TIMED_OUT: [],
+};
+export function transitionAttempt(
+	current: AttemptState,
+	next: AttemptState,
+): AttemptState {
+	if (!transitions[current].includes(next))
+		throw new RepoArenaError(
+			"ATTEMPT_FAILED",
+			`Invalid attempt transition ${current} -> ${next}.`,
+		);
+	return next;
+}
+
 export type CommandEvidence = {
 	command: string;
 	exit_code: number | null;
