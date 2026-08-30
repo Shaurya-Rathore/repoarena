@@ -1,8 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { runArgv, transitionAttempt } from "./index.js";
+import { taskSchema } from "@repoarena/task-spec";
+import { runArgv, runIsolatedAttempt, transitionAttempt } from "./index.js";
 const dirs: string[] = [];
 afterEach(() =>
 	Promise.all(
@@ -29,4 +31,69 @@ it("does not interpret argv as shell syntax", async () => {
 it("rejects illegal state transitions", () => {
 	expect(transitionAttempt("QUEUED", "PREPARING")).toBe("PREPARING");
 	expect(() => transitionAttempt("COMPLETED", "SETUP")).toThrow();
+});
+it("collects an agent patch before isolated private verification", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-pipeline-"));
+	dirs.push(root);
+	execFileSync("git", ["init"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+		cwd: root,
+	});
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+	await writeFile(join(root, "subject.txt"), "bug\n");
+	execFileSync("git", ["add", "."], { cwd: root });
+	execFileSync("git", ["commit", "-m", "base"], { cwd: root });
+	const task = taskSchema.parse({
+		schema: "repoarena.task/v1",
+		id: "pipeline",
+		title: "pipeline",
+		prompt: "change",
+		source: {
+			type: "imported",
+			base_commit: execFileSync("git", ["rev-parse", "HEAD"], {
+				cwd: root,
+				encoding: "utf8",
+			}).trim(),
+		},
+		verification: {
+			required: [
+				{ id: "public", command: [process.execPath, "-e", "process.exit(0)"] },
+			],
+		},
+		provenance: {
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
+			created_by: "test",
+		},
+	});
+	const privateSentinel = "hidden-pipeline-sentinel";
+	const result = await runIsolatedAttempt({
+		root,
+		task,
+		agentArgv: [
+			process.execPath,
+			"-e",
+			"require('fs').writeFileSync('subject.txt','fixed\\n')",
+		],
+		privateData: {
+			task_id: task.id,
+			reference_commit: null,
+			reference_patch: privateSentinel,
+			hidden_hook_source: null,
+			private_notes: [],
+		},
+		privateVerifier: async (workspace) => {
+			await writeFile(join(workspace, ".hidden"), privateSentinel);
+			return [
+				[
+					process.execPath,
+					"-e",
+					`if(require('fs').readFileSync('.hidden','utf8')!==${JSON.stringify(privateSentinel)}) process.exit(1)`,
+				],
+			];
+		},
+	});
+	expect(result.evaluation.outcome).toBe("SOLVED");
+	expect(result.patch).toContain("fixed");
+	expect(JSON.stringify(result)).not.toContain(privateSentinel);
 });

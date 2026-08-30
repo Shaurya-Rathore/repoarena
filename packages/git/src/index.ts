@@ -187,6 +187,34 @@ export class GitRepository {
 			changedFiles: await this.getChangedFiles(base, head),
 		};
 	}
+	public async getWorkingTreeDiff(): Promise<GitDiff> {
+		const tokens = (
+			await this.runner(this.root, [
+				"diff",
+				"--name-status",
+				"-z",
+				"--find-renames",
+			])
+		)
+			.toString("utf8")
+			.split("\0");
+		const changedFiles: ChangedFile[] = [];
+		for (let index = 0; index < tokens.length - 1; ) {
+			const status = tokens[index++] ?? "";
+			if (!status) continue;
+			if (status.startsWith("R") || status.startsWith("C"))
+				changedFiles.push({
+					status,
+					previousPath: tokens[index++] ?? "",
+					path: tokens[index++] ?? "",
+				});
+			else changedFiles.push({ status, path: tokens[index++] ?? "" });
+		}
+		return {
+			patch: await this.output(["diff", "--binary", "--no-ext-diff"]),
+			changedFiles,
+		};
+	}
 	public async readFileAtCommit(sha: string, path: string): Promise<Buffer> {
 		return this.runner(this.root, ["show", `${sha}:${path}`]);
 	}

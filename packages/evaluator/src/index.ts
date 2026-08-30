@@ -37,7 +37,7 @@ export type PrivateEvaluationEvidence = Readonly<{
 export type EvaluationInput = {
 	public_checks: VerificationResult[];
 	private_checks: readonly VerificationResult[];
-	integrity: IntegrityFinding[];
+	integrity: readonly IntegrityFinding[];
 	infrastructure_failure?: boolean;
 	agent_failure?: boolean;
 };

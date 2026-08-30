@@ -151,6 +151,15 @@ importers:
       '@repoarena/core':
         specifier: workspace:*
         version: link:../core
+      '@repoarena/evaluator':
+        specifier: workspace:*
+        version: link:../evaluator
+      '@repoarena/git':
+        specifier: workspace:*
+        version: link:../git
+      '@repoarena/integrity':
+        specifier: workspace:*
+        version: link:../integrity
       '@repoarena/task-spec':
         specifier: workspace:*
         version: link:../task-spec

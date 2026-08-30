@@ -11,6 +11,9 @@
 	},
 	"dependencies": {
 		"@repoarena/core": "workspace:*",
+		"@repoarena/evaluator": "workspace:*",
+		"@repoarena/git": "workspace:*",
+		"@repoarena/integrity": "workspace:*",
 		"@repoarena/task-spec": "workspace:*"
 	}
 }
