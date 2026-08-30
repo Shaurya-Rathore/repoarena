@@ -25,7 +25,7 @@ this workspace; all other states are deliberately conservative.
 | Authentication, organizations and RBAC | NOT_STARTED | — | — | Implement GitHub OAuth, sessions, memberships and tenant isolation tests. |
 | Jobs, worker and schedules | NOT_STARTED | — | — | Implement durable PostgreSQL queue, lease/heartbeat/retry/cron and worker recovery. |
 | Runner registration and hosted execution | NOT_STARTED | — | — | Implement registration credentials, remote protocol, provider abstraction and contracts. |
-| Object storage and artifacts | NOT_STARTED | — | — | Implement signed upload/download, checksums, retention and redaction. |
+| Object storage and artifacts | IN_PROGRESS | `packages/artifacts`; artifact containment tests | `pnpm --filter @repoarena/artifacts test:unit && pnpm --filter @repoarena/artifacts typecheck` | Safe local manifest collection rejects traversal/symlinks and enforces limits. Add persistent object storage, retention, and runner integration. |
 | GitHub App and Actions | NOT_STARTED | — | — | Implement verified idempotent webhooks, sync, checks, action and regression workflow. |
 | Public publishing, pages, badges and leaderboard | NOT_STARTED | — | — | Implement signed/redacted manifests, aggregation, public routes, badge and cache policy. |
 | Billing and entitlements | NOT_STARTED | — | — | Implement Stripe provider, webhooks, checkout/portal, plan limits and mock contracts. |
