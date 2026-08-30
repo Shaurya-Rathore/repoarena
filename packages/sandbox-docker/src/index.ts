@@ -17,10 +17,14 @@ export const dockerCapability = async (): Promise<DockerCapability> =>
 			stdio: ["ignore", "pipe", "pipe"],
 			shell: false,
 		});
-		let out = "",
-			err = "";
-		p.stdout.on("data", (c) => (out += String(c)));
-		p.stderr.on("data", (c) => (err += String(c)));
+		let out = "";
+		let err = "";
+		p.stdout.on("data", (c) => {
+			out += String(c);
+		});
+		p.stderr.on("data", (c) => {
+			err += String(c);
+		});
 		p.on("error", () =>
 			resolve({
 				available: false,
@@ -97,16 +101,20 @@ export class DockerSandboxProvider implements SandboxProvider {
 	async execute(command: SandboxCommand): Promise<SandboxResult> {
 		const args = this.buildArgs(command);
 		return new Promise((resolve) => {
-			const start = performance.now(),
-				p = spawn("docker", args, {
-					stdio: ["ignore", "pipe", "pipe"],
-					shell: false,
-				});
-			let stdout = "",
-				stderr = "",
-				timed = false;
-			p.stdout.on("data", (c) => (stdout += String(c)));
-			p.stderr.on("data", (c) => (stderr += String(c)));
+			const start = performance.now();
+			const p = spawn("docker", args, {
+				stdio: ["ignore", "pipe", "pipe"],
+				shell: false,
+			});
+			let stdout = "";
+			let stderr = "";
+			let timed = false;
+			p.stdout.on("data", (c) => {
+				stdout += String(c);
+			});
+			p.stderr.on("data", (c) => {
+				stderr += String(c);
+			});
 			const t = setTimeout(() => {
 				timed = true;
 				p.kill("SIGTERM");

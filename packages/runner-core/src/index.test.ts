@@ -17,7 +17,7 @@ it("does not interpret argv as shell syntax", async () => {
 		[
 			process.execPath,
 			"-e",
-			`console.log(process.argv[1])`,
+			"console.log(process.argv[1])",
 			`x; echo owned > ${marker}`,
 		],
 		d,

@@ -37,30 +37,34 @@ export class LocalSandboxProvider implements SandboxProvider {
 		private readonly maxOutput = 100_000,
 	) {}
 	async execute(command: SandboxCommand): Promise<SandboxResult> {
-		const root = await realpath(this.root),
-			cwd = await realpath(command.cwd);
+		const root = await realpath(this.root);
+		const cwd = await realpath(command.cwd);
 		if (relative(root, cwd).startsWith(".."))
 			throw new Error("Sandbox cwd escapes root");
 		if (!command.argv.length) throw new Error("Sandbox argv required");
 		return new Promise((resolveResult) => {
-			const started = performance.now(),
-				child = spawn(command.argv[0] ?? "", command.argv.slice(1), {
-					cwd,
-					env: { PATH: process.env.PATH ?? "", ...command.env },
-					stdio: ["ignore", "pipe", "pipe"],
-					shell: false,
-				});
-			let stdout = "",
-				stderr = "",
-				timed = false;
+			const started = performance.now();
+			const child = spawn(command.argv[0] ?? "", command.argv.slice(1), {
+				cwd,
+				env: { PATH: process.env.PATH ?? "", ...command.env },
+				stdio: ["ignore", "pipe", "pipe"],
+				shell: false,
+			});
+			let stdout = "";
+			let stderr = "";
+			let timed = false;
 			const append = (old: string, value: string) => {
 				const next = old + value;
 				return next.length > this.maxOutput
 					? `${next.slice(0, this.maxOutput)}\n[output truncated]`
 					: next;
 			};
-			child.stdout.on("data", (c) => (stdout = append(stdout, String(c))));
-			child.stderr.on("data", (c) => (stderr = append(stderr, String(c))));
+			child.stdout.on("data", (c) => {
+				stdout = append(stdout, String(c));
+			});
+			child.stderr.on("data", (c) => {
+				stderr = append(stderr, String(c));
+			});
 			const timer = setTimeout(() => {
 				timed = true;
 				child.kill("SIGTERM");

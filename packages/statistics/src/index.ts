@@ -27,9 +27,9 @@ export const median = (values: number[]) => {
 export const percentile = (values: number[], p: number) => {
 	if (!values.length) return null;
 	if (p < 0 || p > 1) throw new RangeError("p must be 0..1");
-	const s = [...values].sort((a, b) => a - b),
-		i = (s.length - 1) * p,
-		l = Math.floor(i),
-		h = Math.ceil(i);
+	const s = [...values].sort((a, b) => a - b);
+	const i = (s.length - 1) * p;
+	const l = Math.floor(i);
+	const h = Math.ceil(i);
 	return (s[l] ?? 0) + ((s[h] ?? 0) - (s[l] ?? 0)) * (i - l);
 };

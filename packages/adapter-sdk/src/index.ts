@@ -35,7 +35,9 @@ export async function detectExecutable(name: string): Promise<Detection> {
 			stdio: ["ignore", "pipe", "ignore"],
 		});
 		let out = "";
-		p.stdout.on("data", (c) => (out += String(c)));
+		p.stdout.on("data", (c) => {
+			out += String(c);
+		});
 		p.on("error", () =>
 			resolve({
 				available: false,

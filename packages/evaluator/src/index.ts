@@ -62,9 +62,9 @@ export type PublicEvaluationResult = Readonly<{
 	evidence_hash: string;
 }>;
 export function evaluate(input: EvaluationInput): EvaluationResult {
-	const pub = input.public_checks.filter((c) => !c.passed),
-		hidden = input.private_checks.filter((c) => !c.passed),
-		fatal = input.integrity.find((f) => f.fatal);
+	const pub = input.public_checks.filter((c) => !c.passed);
+	const hidden = input.private_checks.filter((c) => !c.passed);
+	const fatal = input.integrity.find((f) => f.fatal);
 	const outcome = input.infrastructure_failure
 		? "INFRASTRUCTURE_FAILURE"
 		: pub.length || hidden.length || fatal || input.agent_failure

@@ -26,11 +26,15 @@ export class CodexAdapter implements AgentAdapter {
 				env: { PATH: process.env.PATH ?? "", ...i.env },
 				stdio: ["ignore", "pipe", "pipe"],
 			});
-			let stdout = "",
-				stderr = "",
-				timed = false;
-			p.stdout.on("data", (c) => (stdout += String(c)));
-			p.stderr.on("data", (c) => (stderr += String(c)));
+			let stdout = "";
+			let stderr = "";
+			let timed = false;
+			p.stdout.on("data", (c) => {
+				stdout += String(c);
+			});
+			p.stderr.on("data", (c) => {
+				stderr += String(c);
+			});
 			const t = setTimeout(() => {
 				timed = true;
 				p.kill("SIGTERM");
