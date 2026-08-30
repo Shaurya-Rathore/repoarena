@@ -216,3 +216,56 @@ it("classifies timeout separately from agent failure", async () => {
 	});
 	expect(result.state_history.at(-1)?.state).toBe("TIMED_OUT");
 });
+it("captures untracked agent files in the canonical patch", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-untracked-"));
+	dirs.push(root);
+	execFileSync("git", ["init"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+		cwd: root,
+	});
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+	await writeFile(join(root, "subject.txt"), "base\n");
+	execFileSync("git", ["add", "."], { cwd: root });
+	execFileSync("git", ["commit", "-m", "base"], { cwd: root });
+	const head = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: root,
+		encoding: "utf8",
+	}).trim();
+	const task = taskSchema.parse({
+		schema: "repoarena.task/v1",
+		id: "untracked-file",
+		title: "add file",
+		prompt: "add",
+		source: { type: "imported", base_commit: head },
+		verification: {
+			required: [
+				{ id: "public", command: [process.execPath, "-e", "process.exit(0)"] },
+			],
+		},
+		provenance: {
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
+			created_by: "test",
+		},
+	});
+	const result = await runIsolatedAttempt({
+		root,
+		task,
+		agentArgv: [
+			process.execPath,
+			"-e",
+			"require('fs').writeFileSync('new file.txt','added\\n')",
+		],
+		privateData: {
+			task_id: task.id,
+			reference_commit: null,
+			reference_patch: null,
+			hidden_hook_source: null,
+			private_notes: [],
+		},
+	});
+	expect(result.patch).toContain("new file.txt");
+	expect(result.changed_files).toContainEqual(
+		expect.objectContaining({ status: "A", path: "new file.txt" }),
+	);
+});

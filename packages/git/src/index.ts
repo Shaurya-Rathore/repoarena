@@ -188,6 +188,19 @@ export class GitRepository {
 		};
 	}
 	public async getWorkingTreeDiff(): Promise<GitDiff> {
+		const untracked = (
+			await this.runner(this.root, [
+				"ls-files",
+				"--others",
+				"--exclude-standard",
+				"-z",
+			])
+		)
+			.toString("utf8")
+			.split("\0")
+			.filter(Boolean);
+		if (untracked.length)
+			await this.runner(this.root, ["add", "-N", "--", ...untracked]);
 		const tokens = (
 			await this.runner(this.root, [
 				"diff",
