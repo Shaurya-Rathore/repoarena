@@ -40,6 +40,9 @@ it("aggregates independently calculated run evidence", () => {
 			lines_added: 2,
 			lines_removed: 1,
 			failures: { AGENT_FAILED: 1 },
+			mean_duration_ms: 20,
+			variance_duration_ms: 100,
+			stddev_duration_ms: 10,
 		}),
 	);
 });

@@ -56,6 +56,12 @@ export type AggregateStatistics = Readonly<{
 	lines_added: number;
 	lines_removed: number;
 	failures: Readonly<Record<string, number>>;
+	mean_duration_ms?: number | null;
+	p95_duration_ms?: number | null;
+	p99_duration_ms?: number | null;
+	variance_duration_ms?: number | null;
+	stddev_duration_ms?: number | null;
+	confidence_interval_95?: readonly [number, number] | null;
 }>;
 
 export function aggregateAttempts(
@@ -73,6 +79,17 @@ export function aggregateAttempts(
 			failures[attempt.failure_code] =
 				(failures[attempt.failure_code] ?? 0) + 1;
 	const n = attempts.length;
+	const durations = attempts.map((attempt) => attempt.duration_ms);
+	const meanDuration = n
+		? durations.reduce((sum, value) => sum + value, 0) / n
+		: null;
+	const variance =
+		meanDuration === null
+			? null
+			: durations.reduce((sum, value) => sum + (value - meanDuration) ** 2, 0) /
+				n;
+	const standardError =
+		variance === null || n === 0 ? null : Math.sqrt(variance / n);
 	const totalCost = costs.length
 		? costs.reduce((sum, cost) => sum + cost, 0)
 		: null;
@@ -102,5 +119,17 @@ export function aggregateAttempts(
 		failures: Object.fromEntries(
 			Object.entries(failures).sort(([a], [b]) => a.localeCompare(b)),
 		),
+		mean_duration_ms: meanDuration,
+		p95_duration_ms: percentile(durations, 0.95),
+		p99_duration_ms: percentile(durations, 0.99),
+		variance_duration_ms: variance,
+		stddev_duration_ms: variance === null ? null : Math.sqrt(variance),
+		confidence_interval_95:
+			meanDuration === null || standardError === null
+				? null
+				: [
+						meanDuration - 1.96 * standardError,
+						meanDuration + 1.96 * standardError,
+					],
 	};
 }
