@@ -52,7 +52,26 @@ export type BenchmarkOptions = Readonly<{
 	state_path: string;
 	runner_version: string;
 	now?: () => Date;
+	provider_retry_limit?: number;
+	infrastructure_retry_limit?: number;
+	retry_backoff_ms?: readonly number[];
+	sleep?: (milliseconds: number) => Promise<void>;
 }>;
+
+export class BenchmarkRetryError extends Error {
+	readonly retry_class: "PROVIDER_RETRY" | "INFRASTRUCTURE_RETRY";
+	readonly code: string;
+	constructor(
+		retry_class: "PROVIDER_RETRY" | "INFRASTRUCTURE_RETRY",
+		code: string,
+		message = code,
+	) {
+		super(message);
+		this.name = "BenchmarkRetryError";
+		this.retry_class = retry_class;
+		this.code = code;
+	}
+}
 
 const patchStats = (patch: string) => {
 	let added = 0;
@@ -145,33 +164,63 @@ export async function runBenchmark(
 			const job = jobs[position];
 			if (!job) return;
 			const started = options.now?.() ?? new Date();
-			const raw = await runIsolatedAttempt({
-				root: options.root,
-				task: job.t.task,
-				...(job.a.argv ? { agentArgv: job.a.argv } : {}),
-				...(job.a.execute
-					? {
-							agentExecutor: (workspace: string) =>
-								job.a.execute?.(
-									workspace,
-									job.t.task,
-								) as Promise<CommandEvidence>,
-						}
-					: {}),
-				privateData: job.t.private_data,
-				...(job.t.private_verifier
-					? { privateVerifier: job.t.private_verifier }
-					: {}),
-				...(job.t.artifact_requests
-					? {
-							artifactRequests: job.t.artifact_requests.map((request) => ({
-								...request,
-								source: request.source ?? "agent",
-							})),
-						}
-					: {}),
-				...(job.a.secrets ? { secrets: job.a.secrets } : {}),
-			});
+			const retries: PersistedAttempt["retries"][number][] = [];
+			let raw: Awaited<ReturnType<typeof runIsolatedAttempt>> | undefined;
+			for (;;) {
+				try {
+					raw = await runIsolatedAttempt({
+						root: options.root,
+						task: job.t.task,
+						...(job.a.argv ? { agentArgv: job.a.argv } : {}),
+						...(job.a.execute
+							? {
+									agentExecutor: (workspace: string) =>
+										job.a.execute?.(
+											workspace,
+											job.t.task,
+										) as Promise<CommandEvidence>,
+								}
+							: {}),
+						privateData: job.t.private_data,
+						...(job.t.private_verifier
+							? { privateVerifier: job.t.private_verifier }
+							: {}),
+						...(job.t.artifact_requests
+							? {
+									artifactRequests: job.t.artifact_requests.map((request) => ({
+										...request,
+										source: request.source ?? "agent",
+									})),
+								}
+							: {}),
+						...(job.a.secrets ? { secrets: job.a.secrets } : {}),
+					});
+					break;
+				} catch (error) {
+					if (!(error instanceof BenchmarkRetryError)) throw error;
+					const limit =
+						error.retry_class === "PROVIDER_RETRY"
+							? (options.provider_retry_limit ?? 0)
+							: (options.infrastructure_retry_limit ?? 0);
+					const used = retries.filter(
+						(event) => event.class === error.retry_class,
+					).length;
+					if (used >= limit) throw error;
+					retries.push({
+						class: error.retry_class,
+						reason: error.message,
+						code: error.code,
+						at: (options.now?.() ?? new Date()).toISOString(),
+					});
+					const delay = options.retry_backoff_ms?.[retries.length - 1] ?? 0;
+					if (delay > 0)
+						await (
+							options.sleep ??
+							((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+						)(delay);
+				}
+			}
+			if (!raw) throw new Error("attempt did not produce a result");
 			const ended = options.now?.() ?? new Date();
 			const lines = patchStats(raw.patch);
 			const observedUsage = raw.agent_usage ?? job.a.usage ?? null;
@@ -257,7 +306,7 @@ export async function runBenchmark(
 							retryable: raw.evaluation.outcome === "INFRASTRUCTURE_FAILURE",
 						}
 					: null,
-				retries: [],
+				retries,
 				artifacts: raw.artifacts.map((artifact) => ({
 					path: artifact.logical_path,
 					size: artifact.size_bytes,

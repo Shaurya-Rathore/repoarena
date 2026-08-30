@@ -70,6 +70,8 @@ export type PersistedAttempt = Readonly<{
 	retries: readonly {
 		class: "PROVIDER_RETRY" | "INFRASTRUCTURE_RETRY";
 		reason: string;
+		code?: string;
+		at?: string;
 	}[];
 	artifacts: readonly {
 		path: string;
