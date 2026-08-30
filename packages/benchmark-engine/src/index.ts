@@ -1,0 +1,256 @@
+import { contentHash } from "@repoarena/core";
+import {
+	snapshotCost,
+	usageStatus,
+	type PricingCatalog,
+	type Usage,
+} from "@repoarena/pricing";
+import {
+	writeRunAtomic,
+	type PersistedAttempt,
+	type PersistedRun,
+} from "@repoarena/run-store";
+import {
+	runIsolatedAttempt,
+	type CommandEvidence,
+} from "@repoarena/runner-core";
+import { aggregateAttempts } from "@repoarena/statistics";
+import type { EvaluatorPrivateTaskData, Task } from "@repoarena/task-spec";
+
+export type BenchmarkAgent = Readonly<{
+	id: string;
+	version: string | null;
+	model: string | null;
+	provider: string;
+	config_hash: string;
+	argv?: readonly string[];
+	execute?: (workspace: string, task: Task) => Promise<CommandEvidence>;
+	usage?: Usage | null;
+}>;
+export type BenchmarkTask = Readonly<{
+	task: Task;
+	private_data: EvaluatorPrivateTaskData;
+	private_verifier?: (
+		workspace: string,
+		data: EvaluatorPrivateTaskData,
+	) => Promise<readonly string[][]>;
+}>;
+export type BenchmarkOptions = Readonly<{
+	root: string;
+	repository: { commit: string; remote: string | null };
+	tasks: readonly BenchmarkTask[];
+	agents: readonly BenchmarkAgent[];
+	runs_per_task: number;
+	parallelism: number;
+	pricing: PricingCatalog;
+	state_path: string;
+	runner_version: string;
+	now?: () => Date;
+}>;
+
+const patchStats = (patch: string) => {
+	let added = 0,
+		removed = 0;
+	for (const line of patch.split("\n")) {
+		if (line.startsWith("+") && !line.startsWith("+++")) added++;
+		if (line.startsWith("-") && !line.startsWith("---")) removed++;
+	}
+	return { added, removed };
+};
+
+export async function runBenchmark(
+	options: BenchmarkOptions,
+): Promise<PersistedRun> {
+	if (!Number.isInteger(options.runs_per_task) || options.runs_per_task < 1)
+		throw new RangeError("runs_per_task must be positive");
+	if (!Number.isInteger(options.parallelism) || options.parallelism < 1)
+		throw new RangeError("parallelism must be positive");
+	const jobs = options.tasks
+		.flatMap((t) =>
+			options.agents.flatMap((a) =>
+				Array.from({ length: options.runs_per_task }, (_, index) => ({
+					t,
+					a,
+					index,
+				})),
+			),
+		)
+		.sort(
+			(x, y) =>
+				x.t.task.id.localeCompare(y.t.task.id) ||
+				x.a.id.localeCompare(y.a.id) ||
+				x.index - y.index,
+		);
+	const fingerprint = contentHash({
+		repository: options.repository.commit,
+		tasks: options.tasks.map((t) => contentHash(t.task)),
+		agents: options.agents.map((a) => ({
+			id: a.id,
+			version: a.version,
+			model: a.model,
+			config_hash: a.config_hash,
+		})),
+		runs_per_task: options.runs_per_task,
+		runner_version: options.runner_version,
+	});
+	const created = (options.now?.() ?? new Date()).toISOString();
+	const slots: Array<PersistedAttempt | undefined> = Array(jobs.length);
+	let cursor = 0;
+	let persist = Promise.resolve();
+	const snapshot = (status: PersistedRun["status"]): PersistedRun => {
+		const attempts = slots.filter(
+			(item): item is PersistedAttempt => item !== undefined,
+		);
+		const statistics = aggregateAttempts(
+			attempts.map((a) => ({
+				solved: a.evaluation.outcome === "SOLVED",
+				duration_ms: a.duration_ms,
+				...(a.cost.micros === null ? {} : { cost_micros: a.cost.micros }),
+				lines_added: a.patch.lines_added,
+				lines_removed: a.patch.lines_removed,
+				...((a.failure?.code ?? a.evaluation.reason)
+					? { failure_code: a.failure?.code ?? a.evaluation.reason ?? "" }
+					: {}),
+			})),
+			Math.min(options.runs_per_task, attempts.length || 1),
+		);
+		return {
+			schema: "repoarena.benchmark-run/v1",
+			id: fingerprint.slice(0, 24),
+			run_fingerprint: fingerprint,
+			status,
+			repository: options.repository,
+			configuration: {
+				runs_per_task: options.runs_per_task,
+				parallelism: options.parallelism,
+				runner_version: options.runner_version,
+				sandbox: "local",
+			},
+			attempts,
+			statistics,
+			created_at: created,
+			updated_at: (options.now?.() ?? new Date()).toISOString(),
+		};
+	};
+	await writeRunAtomic(options.state_path, snapshot("RUNNING"));
+	const worker = async () => {
+		for (;;) {
+			const position = cursor++;
+			const job = jobs[position];
+			if (!job) return;
+			const started = options.now?.() ?? new Date();
+			const raw = await runIsolatedAttempt({
+				root: options.root,
+				task: job.t.task,
+				...(job.a.argv ? { agentArgv: job.a.argv } : {}),
+				...(job.a.execute
+					? {
+							agentExecutor: (workspace: string) =>
+								job.a.execute?.(
+									workspace,
+									job.t.task,
+								) as Promise<CommandEvidence>,
+						}
+					: {}),
+				privateData: job.t.private_data,
+				...(job.t.private_verifier
+					? { privateVerifier: job.t.private_verifier }
+					: {}),
+			});
+			const ended = options.now?.() ?? new Date();
+			const lines = patchStats(raw.patch);
+			const usage = {
+				status: usageStatus(job.a.usage ?? null),
+				...(job.a.usage ?? {}),
+			} as PersistedAttempt["usage"];
+			const costRaw = snapshotCost(
+				options.pricing,
+				job.a.provider,
+				job.a.model ?? "",
+				ended.toISOString(),
+				job.a.usage ?? null,
+			);
+			const cost: PersistedAttempt["cost"] = {
+				status: costRaw.status,
+				micros: costRaw.micros,
+				currency: costRaw.currency,
+				pricing_id: costRaw.pricing_id,
+				pricing_effective_from: costRaw.pricing_effective_from,
+				usage_snapshot: usage,
+			};
+			slots[position] = {
+				schema: "repoarena.attempt-result/v1",
+				id: contentHash({
+					run: fingerprint,
+					task: job.t.task.id,
+					agent: job.a.id,
+					index: job.index,
+				}).slice(0, 24),
+				index: job.index,
+				task_id: job.t.task.id,
+				task_hash: contentHash(job.t.task),
+				agent: {
+					id: job.a.id,
+					version: job.a.version,
+					model: job.a.model,
+					config_hash: job.a.config_hash,
+				},
+				sandbox: {
+					provider: "local",
+					network_policy: job.t.task.execution.network.mode,
+				},
+				state:
+					raw.evaluation.outcome === "INFRASTRUCTURE_FAILURE"
+						? "FAILED"
+						: "COMPLETED",
+				state_history: raw.state_history,
+				started_at: started.toISOString(),
+				ended_at: ended.toISOString(),
+				duration_ms: Math.max(0, ended.getTime() - started.getTime()),
+				patch: {
+					sha256: contentHash(raw.patch),
+					bytes: Buffer.byteLength(raw.patch),
+					files_changed: raw.changed_files.length,
+					lines_added: lines.added,
+					lines_removed: lines.removed,
+				},
+				public_verification: raw.public_verification.map((e, index) => ({
+					id: `public-${index}`,
+					passed: e.exit_code === 0 && !e.timed_out,
+					duration_ms: e.duration_ms,
+					evidence_hash: contentHash(e),
+					stdout: e.stdout,
+					stderr: e.stderr,
+					truncated:
+						e.stdout.includes("[output truncated]") ||
+						e.stderr.includes("[output truncated]"),
+				})),
+				private_verification: raw.private_verification,
+				integrity: raw.evaluation.integrity,
+				regressions: [],
+				evaluation: raw.evaluation,
+				usage,
+				cost,
+				failure: raw.evaluation.reason
+					? {
+							code: raw.evaluation.reason,
+							message: raw.evaluation.reason,
+							retryable: raw.evaluation.outcome === "INFRASTRUCTURE_FAILURE",
+						}
+					: null,
+				retries: [],
+			};
+			persist = persist.then(() =>
+				writeRunAtomic(options.state_path, snapshot("RUNNING")),
+			);
+			await persist;
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(options.parallelism, jobs.length) }, worker),
+	);
+	await persist;
+	const completed = snapshot("COMPLETED");
+	await writeRunAtomic(options.state_path, completed);
+	return completed;
+}

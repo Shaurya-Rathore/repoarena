@@ -277,7 +277,8 @@ export type IsolatedAttemptResult = Readonly<{
 export async function runIsolatedAttempt(options: {
 	root: string;
 	task: Task;
-	agentArgv: readonly string[];
+	agentArgv?: readonly string[];
+	agentExecutor?: (workspace: string) => Promise<CommandEvidence>;
 	privateData: EvaluatorPrivateTaskData;
 	privateVerifier?: (
 		workspace: string,
@@ -285,6 +286,11 @@ export async function runIsolatedAttempt(options: {
 	) => Promise<readonly string[][]>;
 	integrityPolicy?: IntegrityPolicy;
 }): Promise<IsolatedAttemptResult> {
+	if ((options.agentArgv ? 1 : 0) + (options.agentExecutor ? 1 : 0) !== 1)
+		throw new RepoArenaError(
+			"CONFIG_INVALID",
+			"Exactly one agent execution strategy is required.",
+		);
 	const agentWorkspace = await mkdtemp(join(tmpdir(), "repoarena-agent-"));
 	const history: { state: AttemptState; at: string }[] = [];
 	const move = (state: AttemptState) =>
@@ -300,11 +306,13 @@ export async function runIsolatedAttempt(options: {
 		});
 		move("SETUP");
 		move("AGENT_RUNNING");
-		const agent = await runArgv(
-			[...options.agentArgv],
-			agentWorkspace,
-			options.task.execution.timeout_seconds,
-		);
+		const agent = options.agentExecutor
+			? await options.agentExecutor(agentWorkspace)
+			: await runArgv(
+					[...(options.agentArgv ?? [])],
+					agentWorkspace,
+					options.task.execution.timeout_seconds,
+				);
 		if (agent.timed_out) move("TIMED_OUT");
 		if (agent.exit_code !== 0 || agent.timed_out) {
 			move("FAILED");
@@ -318,7 +326,7 @@ export async function runIsolatedAttempt(options: {
 				schema: "repoarena.attempt/v1",
 				id: contentHash({
 					task: options.task.id,
-					agent: options.agentArgv,
+					agent: options.agentArgv ?? ["custom-executor"],
 					at: history[0]?.at,
 				}).slice(0, 24),
 				state_history: history,
@@ -396,7 +404,7 @@ export async function runIsolatedAttempt(options: {
 			schema: "repoarena.attempt/v1",
 			id: contentHash({
 				task: options.task.id,
-				agent: options.agentArgv,
+				agent: options.agentArgv ?? ["custom-executor"],
 				patch: diff.patch,
 			}).slice(0, 24),
 			state_history: history,

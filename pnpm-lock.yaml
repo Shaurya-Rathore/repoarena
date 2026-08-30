@@ -57,6 +57,27 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/benchmark-engine:
+    dependencies:
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+      '@repoarena/pricing':
+        specifier: workspace:*
+        version: link:../pricing
+      '@repoarena/run-store':
+        specifier: workspace:*
+        version: link:../run-store
+      '@repoarena/runner-core':
+        specifier: workspace:*
+        version: link:../runner-core
+      '@repoarena/statistics':
+        specifier: workspace:*
+        version: link:../statistics
+      '@repoarena/task-spec':
+        specifier: workspace:*
+        version: link:../task-spec
+
   packages/cli:
     dependencies:
       '@repoarena/config':
