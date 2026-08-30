@@ -120,6 +120,8 @@ importers:
 
   packages/readiness: {}
 
+  packages/redaction: {}
+
   packages/reporter:
     dependencies:
       '@repoarena/runner-core':
@@ -134,6 +136,12 @@ importers:
       '@repoarena/task-spec':
         specifier: workspace:*
         version: link:../task-spec
+
+  packages/sandbox-docker:
+    dependencies:
+      '@repoarena/sandbox-local':
+        specifier: workspace:*
+        version: link:../sandbox-local
 
   packages/sandbox-local:
     dependencies:
