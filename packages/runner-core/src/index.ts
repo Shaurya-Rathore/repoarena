@@ -357,7 +357,7 @@ export async function runIsolatedAttempt(options: {
 		const privateWorkspace = await mkdtemp(
 			join(tmpdir(), "repoarena-evaluator-"),
 		);
-		let privateEvidence: CommandEvidence[] = [];
+		const privateEvidence: CommandEvidence[] = [];
 		try {
 			// Agent process is already closed; do not introduce private data before here.
 			await cp(agentWorkspace, privateWorkspace, { recursive: true });

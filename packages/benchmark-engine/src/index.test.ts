@@ -52,8 +52,8 @@ it("runs clean repetitions with bounded concurrency and persists cost", async ()
 			created_by: "test",
 		},
 	});
-	let active = 0,
-		maxActive = 0;
+	let active = 0;
+	let maxActive = 0;
 	const agent = (id: string) => ({
 		id,
 		version: "1",
