@@ -1,0 +1,30 @@
+{
+	"name": "repoarena",
+	"version": "0.1.0",
+	"private": true,
+	"packageManager": "pnpm@9.15.0",
+	"engines": { "node": ">=24 <25", "pnpm": ">=9" },
+	"scripts": {
+		"build": "pnpm -r --if-present build",
+		"format": "biome format --write .",
+		"format:check": "biome format .",
+		"lint": "biome lint .",
+		"typecheck": "pnpm build && pnpm -r --if-present typecheck",
+		"test": "pnpm test:unit",
+		"test:unit": "pnpm -r --if-present test:unit",
+		"test:integration": "pnpm -r --if-present test:integration",
+		"verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build",
+		"verify:release": "pnpm verify",
+		"dev:infra": "docker compose -f infra/compose/docker-compose.dev.yml up -d",
+		"dev:infra:down": "docker compose -f infra/compose/docker-compose.dev.yml down",
+		"db:migrate": "node scripts/db-migrate.mjs",
+		"db:seed": "node scripts/db-seed.mjs",
+		"skills:validate": "node scripts/validate-skills.mjs"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "1.9.4",
+		"@types/node": "24.10.1",
+		"typescript": "5.7.2",
+		"vitest": "2.1.8"
+	}
+}

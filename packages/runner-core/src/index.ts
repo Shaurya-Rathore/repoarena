@@ -1,0 +1,171 @@
+import { spawn } from "node:child_process";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
+import { contentHash, RepoArenaError } from "@repoarena/core";
+import type { Task } from "@repoarena/task-spec";
+
+export type CommandEvidence = {
+	command: string;
+	exit_code: number | null;
+	duration_ms: number;
+	stdout: string;
+	stderr: string;
+	timed_out: boolean;
+};
+export type AttemptResult = {
+	id: string;
+	task_id: string;
+	status: "passed" | "failed" | "error";
+	started_at: string;
+	ended_at: string;
+	patch: string;
+	patch_bytes: number;
+	verification: CommandEvidence[];
+	provenance: { task_hash: string; workspace: string; network_policy: string };
+};
+
+const limitOutput = (text: string): string =>
+	text.length > 100_000
+		? `${text.slice(0, 100_000)}\n[output truncated]`
+		: text;
+export async function runShell(
+	command: string,
+	cwd: string,
+	timeoutSeconds: number,
+): Promise<CommandEvidence> {
+	const started = performance.now();
+	return new Promise((finish) => {
+		const child = spawn(command, {
+			cwd,
+			shell: true,
+			stdio: ["ignore", "pipe", "pipe"],
+			env: { ...process.env, REPOARENA_NETWORK_POLICY: "none" },
+		});
+		let stdout = "";
+		let stderr = "";
+		let timedOut = false;
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdout += chunk.toString();
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString();
+		});
+		const timer = setTimeout(() => {
+			timedOut = true;
+			child.kill("SIGTERM");
+		}, timeoutSeconds * 1_000);
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			finish({
+				command,
+				exit_code: code,
+				duration_ms: Math.round(performance.now() - started),
+				stdout: limitOutput(stdout),
+				stderr: limitOutput(stderr),
+				timed_out: timedOut,
+			});
+		});
+		child.on("error", (error) => {
+			clearTimeout(timer);
+			finish({
+				command,
+				exit_code: null,
+				duration_ms: Math.round(performance.now() - started),
+				stdout: limitOutput(stdout),
+				stderr: `${stderr}${error.message}`,
+				timed_out: timedOut,
+			});
+		});
+	});
+}
+async function git(root: string, args: string[]): Promise<string> {
+	const result = await runShell(
+		`git ${args.map((part) => JSON.stringify(part)).join(" ")}`,
+		root,
+		60,
+	);
+	if (result.exit_code !== 0)
+		throw new RepoArenaError(
+			"REPOSITORY_NOT_FOUND",
+			result.stderr || "Git command failed",
+		);
+	return result.stdout;
+}
+export async function runTask(options: {
+	root: string;
+	task: Task;
+	agentCommand?: string;
+	retainWorkspace?: boolean;
+}): Promise<AttemptResult> {
+	const startedAt = new Date().toISOString();
+	const source = resolve(options.root);
+	const workspace = await mkdtemp(join(tmpdir(), "repoarena-attempt-"));
+	try {
+		await cp(source, workspace, {
+			recursive: true,
+			filter: (entry) =>
+				!relative(source, entry).startsWith(".repoarena/state") &&
+				!relative(source, entry).startsWith("node_modules"),
+		});
+		if (options.agentCommand) {
+			await writeFile(
+				join(workspace, ".repoarena-agent-prompt.txt"),
+				options.task.prompt,
+				{ mode: 0o600 },
+			);
+			const agent = await runShell(
+				options.agentCommand,
+				workspace,
+				options.task.verification.required[0]?.timeout_seconds ?? 900,
+			);
+			if (agent.exit_code !== 0)
+				throw new RepoArenaError("ATTEMPT_FAILED", "Agent command failed", {
+					stderr: agent.stderr,
+				});
+		}
+		const evidence: CommandEvidence[] = [];
+		for (const check of options.task.verification.required) {
+			const item = await runShell(
+				check.command,
+				workspace,
+				check.timeout_seconds,
+			);
+			evidence.push(item);
+			if (item.exit_code !== 0 || item.timed_out) break;
+		}
+		const patch = await git(workspace, ["diff", "--binary", "--no-ext-diff"]);
+		const patchBytes = Buffer.byteLength(patch);
+		if (patchBytes > options.task.constraints.max_patch_bytes)
+			throw new RepoArenaError(
+				"EVALUATION_FAILED",
+				"Patch exceeds task size limit",
+				{ patchBytes },
+			);
+		const result: AttemptResult = {
+			id: contentHash({ task: options.task.id, startedAt, patch }).slice(0, 24),
+			task_id: options.task.id,
+			status: evidence.every((item) => item.exit_code === 0 && !item.timed_out)
+				? "passed"
+				: "failed",
+			started_at: startedAt,
+			ended_at: new Date().toISOString(),
+			patch,
+			patch_bytes: patchBytes,
+			verification: evidence,
+			provenance: {
+				task_hash: contentHash(options.task),
+				workspace,
+				network_policy: options.task.constraints.network,
+			},
+		};
+		return result;
+	} finally {
+		if (!options.retainWorkspace)
+			await rm(workspace, { recursive: true, force: true });
+	}
+}
+export async function loadTask(path: string): Promise<Task> {
+	const { taskSchema } = await import("@repoarena/task-spec");
+	return taskSchema.parse(JSON.parse(await readFile(path, "utf8")));
+}

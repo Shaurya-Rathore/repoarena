@@ -1,0 +1,23 @@
+{
+	"name": "repoarena",
+	"version": "0.1.0",
+	"private": false,
+	"type": "module",
+	"bin": { "repoarena": "./dist/index.js" },
+	"exports": "./dist/index.js",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test:unit": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@repoarena/config": "workspace:*",
+		"@repoarena/core": "workspace:*",
+		"@repoarena/readiness": "workspace:*",
+		"@repoarena/reporter": "workspace:*",
+		"@repoarena/runner-core": "workspace:*",
+		"@repoarena/task-spec": "workspace:*",
+		"commander": "12.1.0",
+		"yaml": "2.6.1"
+	}
+}
