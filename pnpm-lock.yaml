@@ -146,6 +146,18 @@ importers:
         specifier: workspace:*
         version: link:../runner-core
 
+  packages/run-store:
+    dependencies:
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+      '@repoarena/evaluator':
+        specifier: workspace:*
+        version: link:../evaluator
+      '@repoarena/statistics':
+        specifier: workspace:*
+        version: link:../statistics
+
   packages/runner-core:
     dependencies:
       '@repoarena/core':
