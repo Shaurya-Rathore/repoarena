@@ -11,6 +11,12 @@
 		"test:unit": "vitest run --passWithNoTests"
 	},
 	"dependencies": {
+		"@repoarena/adapter-claude-code": "workspace:*",
+		"@repoarena/adapter-codex": "workspace:*",
+		"@repoarena/adapter-gemini-cli": "workspace:*",
+		"@repoarena/adapter-opencode": "workspace:*",
+		"@repoarena/adapter-sdk": "workspace:*",
+		"@repoarena/benchmark-engine": "workspace:*",
 		"@repoarena/config": "workspace:*",
 		"@repoarena/core": "workspace:*",
 		"@repoarena/git": "workspace:*",
@@ -19,6 +25,7 @@
 		"@repoarena/task-validation": "workspace:*",
 		"@repoarena/readiness": "workspace:*",
 		"@repoarena/reporter": "workspace:*",
+		"@repoarena/run-store": "workspace:*",
 		"@repoarena/runner-core": "workspace:*",
 		"@repoarena/task-spec": "workspace:*",
 		"commander": "12.1.0",

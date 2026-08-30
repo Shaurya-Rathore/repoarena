@@ -302,6 +302,7 @@ export async function runIsolatedAttempt(options: {
 			recursive: true,
 			filter: (entry) =>
 				!relative(options.root, entry).startsWith(".repoarena/state") &&
+				!relative(options.root, entry).startsWith(".repoarena/tasks") &&
 				!relative(options.root, entry).startsWith("node_modules"),
 		});
 		move("SETUP");

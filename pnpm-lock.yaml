@@ -80,6 +80,24 @@ importers:
 
   packages/cli:
     dependencies:
+      '@repoarena/adapter-claude-code':
+        specifier: workspace:*
+        version: link:../adapters/claude-code
+      '@repoarena/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapters/codex
+      '@repoarena/adapter-gemini-cli':
+        specifier: workspace:*
+        version: link:../adapters/gemini-cli
+      '@repoarena/adapter-opencode':
+        specifier: workspace:*
+        version: link:../adapters/opencode
+      '@repoarena/adapter-sdk':
+        specifier: workspace:*
+        version: link:../adapter-sdk
+      '@repoarena/benchmark-engine':
+        specifier: workspace:*
+        version: link:../benchmark-engine
       '@repoarena/config':
         specifier: workspace:*
         version: link:../config
@@ -95,6 +113,9 @@ importers:
       '@repoarena/reporter':
         specifier: workspace:*
         version: link:../reporter
+      '@repoarena/run-store':
+        specifier: workspace:*
+        version: link:../run-store
       '@repoarena/runner-core':
         specifier: workspace:*
         version: link:../runner-core

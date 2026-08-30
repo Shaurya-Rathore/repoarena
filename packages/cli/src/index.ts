@@ -3,12 +3,19 @@ import { createServer } from "node:http";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
+import { ClaudeCodeAdapter } from "@repoarena/adapter-claude-code";
+import { CodexAdapter } from "@repoarena/adapter-codex";
+import { GeminiCliAdapter } from "@repoarena/adapter-gemini-cli";
+import { OpenCodeAdapter } from "@repoarena/adapter-opencode";
+import type { AgentAdapter } from "@repoarena/adapter-sdk";
+import { runBenchmark, type BenchmarkAgent } from "@repoarena/benchmark-engine";
 import { loadConfig } from "@repoarena/config";
 import { RepoArenaError } from "@repoarena/core";
 import { GitRepository } from "@repoarena/git";
 import { assessRepository } from "@repoarena/readiness";
-import { toHtml } from "@repoarena/reporter";
-import { loadTask, runTask } from "@repoarena/runner-core";
+import { toHtml, toJson, toJunit, toTerminal } from "@repoarena/reporter";
+import { loadRun, writeRunAtomic } from "@repoarena/run-store";
+import type { EvaluatorPrivateTaskData } from "@repoarena/task-spec";
 import { taskSchema } from "@repoarena/task-spec";
 import { discover } from "@repoarena/task-discovery";
 import { reconstructHistoricalTask } from "@repoarena/task-reconstruction";
@@ -24,6 +31,16 @@ const output = (value: unknown, json = false): void => {
 	);
 };
 const taskDir = () => join(root, ".repoarena", "tasks");
+const adapters: Record<string, AgentAdapter> = {
+	codex: new CodexAdapter(),
+	"claude-code": new ClaudeCodeAdapter(),
+	"gemini-cli": new GeminiCliAdapter(),
+	opencode: new OpenCodeAdapter(),
+};
+const collect = (value: string, previous: string[]): string[] => [
+	...previous,
+	value,
+];
 async function paths(): Promise<string[]> {
 	try {
 		return (await readdir(taskDir()))
@@ -335,13 +352,65 @@ tasks
 		output({ created: path }, options.json);
 	});
 program
+	.command("agents")
+	.description("Inspect coding-agent adapters")
+	.argument("[action]", "list, detect, or inspect", "list")
+	.argument("[name]", "adapter name")
+	.option("--json")
+	.action(async (action, name, options) => {
+		if (!["list", "detect", "inspect"].includes(action))
+			throw new RepoArenaError(
+				"CONFIG_INVALID",
+				"agents action must be list, detect, or inspect",
+			);
+		const names = name ? [name] : Object.keys(adapters).sort();
+		const values = [];
+		for (const id of names) {
+			const adapter = adapters[id];
+			if (!adapter)
+				throw new RepoArenaError("CONFIG_INVALID", `Unknown agent ${id}.`);
+			const detection = await adapter.detect();
+			values.push({
+				id,
+				...detection,
+				capabilities: {
+					noninteractive: true,
+					usage: "provider-dependent",
+					models: "provider-dependent",
+				},
+			});
+		}
+		output(action === "inspect" ? values[0] : values, options.json);
+	});
+program
 	.command("run")
 	.option("--tasks <ids>", "comma-separated task IDs")
 	.option(
-		"--agent-command <command>",
-		"command that performs the agent attempt",
+		"--agent <name>",
+		"adapter to execute; repeat for multiple agents",
+		collect,
+		[],
 	)
-	.option("--retain-workspace")
+	.option("--agent-command <executable>", "argv-safe custom agent executable")
+	.option(
+		"--agent-arg <value>",
+		"custom executable argument; repeat as needed",
+		collect,
+		[],
+	)
+	.option("--runs-per-task <count>", "clean repetitions per task", "1")
+	.option("--parallel <count>", "maximum concurrent attempts", "1")
+	.option("--model <model>", "model requested from each adapter")
+	.option(
+		"--report <formats>",
+		"comma-separated terminal,json,html,junit",
+		"terminal",
+	)
+	.option(
+		"--output <directory>",
+		"report output directory",
+		".repoarena/reports",
+	)
 	.option("--json")
 	.action(async (options) => {
 		await ensureGit();
@@ -350,45 +419,141 @@ program
 			? new Set((options.tasks as string).split(","))
 			: undefined;
 		const files = await paths();
-		const results = [];
+		const taskPlans = [];
 		for (const path of files) {
 			const task = await taskFromPath(path);
 			if (selected && !selected.has(task.id)) continue;
-			const result = await runTask({
-				root,
+			let privateData: EvaluatorPrivateTaskData = {
+				task_id: task.id,
+				reference_commit: null,
+				reference_patch: null,
+				hidden_hook_source: null,
+				private_notes: [],
+			};
+			try {
+				privateData = JSON.parse(
+					await readFile(
+						join(root, ".repoarena", "state", "private", `${task.id}.json`),
+						"utf8",
+					),
+				) as EvaluatorPrivateTaskData;
+			} catch {
+				/* imported tasks may have no private evaluator */
+			}
+			taskPlans.push({
 				task,
-				agentCommand: options.agentCommand,
-				retainWorkspace: options.retainWorkspace,
+				private_data: privateData,
+				...(privateData.hidden_hook_source
+					? {
+							private_verifier: async (workspace: string) => {
+								const hook = join(workspace, ".repoarena-private-hook.mjs");
+								await writeFile(hook, privateData.hidden_hook_source ?? "", {
+									mode: 0o600,
+								});
+								return [[process.execPath, hook]];
+							},
+						}
+					: {}),
 			});
-			results.push(result);
 		}
-		await mkdir(join(root, ".repoarena", "state", "runs"), { recursive: true });
-		for (const result of results)
-			await writeFile(
-				join(root, ".repoarena", "state", "runs", `${result.id}.json`),
-				JSON.stringify(result, null, 2),
+		const requested = options.agent as string[];
+		const plans: BenchmarkAgent[] = [];
+		if (options.agentCommand)
+			plans.push({
+				id: "command",
+				version: null,
+				model: null,
+				provider: "unknown",
+				config_hash: "command",
+				argv: [options.agentCommand, ...(options.agentArg as string[])],
+			});
+		for (const name of requested) {
+			const adapter = adapters[name];
+			if (!adapter)
+				throw new RepoArenaError("CONFIG_INVALID", `Unknown agent ${name}.`);
+			const detection = await adapter.detect();
+			if (!detection.available)
+				throw new RepoArenaError("ATTEMPT_FAILED", `${name} is unavailable.`);
+			plans.push({
+				id: name,
+				version: detection.version,
+				model: options.model ?? null,
+				provider: name,
+				config_hash: JSON.stringify({ name, model: options.model ?? null }),
+				execute: async (workspace, task) => {
+					const started = performance.now();
+					const result = await adapter.run({
+						cwd: workspace,
+						prompt: task.prompt,
+						model: options.model,
+						timeout_seconds: task.execution.timeout_seconds,
+						env: {},
+					});
+					return {
+						command: JSON.stringify([name]),
+						exit_code: result.exit_code,
+						duration_ms: Math.round(performance.now() - started),
+						stdout: result.stdout,
+						stderr: result.stderr,
+						timed_out: result.timed_out,
+					};
+				},
+			});
+		}
+		if (!plans.length)
+			throw new RepoArenaError(
+				"CONFIG_INVALID",
+				"Select --agent or --agent-command.",
 			);
-		output(results, options.json);
-		if (results.some((result) => result.status !== "passed"))
+		const identity = await new GitRepository(root).identity();
+		const statePath = join(root, ".repoarena", "state", "runs", "latest.json");
+		const run = await runBenchmark({
+			root,
+			repository: { commit: identity.head, remote: identity.remote },
+			tasks: taskPlans,
+			agents: plans,
+			runs_per_task: Number(options.runsPerTask),
+			parallelism: Number(options.parallel),
+			pricing: { version: "unpriced", prices: [] },
+			state_path: statePath,
+			runner_version: "0.1.0",
+		});
+		await writeRunAtomic(
+			join(root, ".repoarena", "state", "runs", `${run.id}.json`),
+			run,
+		);
+		const formats = new Set(String(options.report).split(","));
+		const directory = resolve(root, options.output);
+		await mkdir(directory, { recursive: true });
+		if (formats.has("json"))
+			await writeFile(join(directory, `${run.id}.json`), toJson(run));
+		if (formats.has("html"))
+			await writeFile(join(directory, `${run.id}.html`), toHtml(run));
+		if (formats.has("junit"))
+			await writeFile(join(directory, `${run.id}.xml`), toJunit(run));
+		if (formats.has("terminal") && !options.json) output(toTerminal(run));
+		else output(run, true);
+		if (run.statistics.solved_count !== run.statistics.attempt_count)
 			process.exitCode = 1;
 	});
 program
 	.command("export <runId>")
-	.requiredOption("--format <format>", "json or html")
+	.requiredOption("--format <format>", "json, html, junit, or terminal")
 	.option("--output <path>")
 	.action(async (runId, options) => {
-		const result = JSON.parse(
-			await readFile(
-				join(root, ".repoarena", "state", "runs", `${runId}.json`),
-				"utf8",
-			),
+		const result = await loadRun(
+			join(root, ".repoarena", "state", "runs", `${runId}.json`),
 		);
-		const data =
-			options.format === "html"
-				? toHtml(result)
-				: JSON.stringify(result, null, 2);
-		if (options.format !== "html" && options.format !== "json")
+		const renderers: Record<string, (run: typeof result) => string> = {
+			json: toJson,
+			html: toHtml,
+			junit: toJunit,
+			terminal: toTerminal,
+		};
+		const renderer = renderers[options.format];
+		if (!renderer)
 			throw new RepoArenaError("CONFIG_INVALID", "format must be json or html");
+		const data = renderer(result);
 		const path = resolve(root, options.output ?? `${runId}.${options.format}`);
 		await writeFile(path, data);
 		output({ exported: path });
