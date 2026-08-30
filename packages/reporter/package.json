@@ -9,5 +9,5 @@
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test:unit": "vitest run --passWithNoTests"
 	},
-	"dependencies": { "@repoarena/runner-core": "workspace:*" }
+	"dependencies": { "@repoarena/run-store": "workspace:*" }
 }

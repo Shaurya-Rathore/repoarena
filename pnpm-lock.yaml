@@ -142,9 +142,9 @@ importers:
 
   packages/reporter:
     dependencies:
-      '@repoarena/runner-core':
+      '@repoarena/run-store':
         specifier: workspace:*
-        version: link:../runner-core
+        version: link:../run-store
 
   packages/run-store:
     dependencies:
