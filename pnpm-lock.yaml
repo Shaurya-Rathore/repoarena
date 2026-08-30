@@ -122,6 +122,12 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/integrity:
+    dependencies:
+      '@repoarena/git':
+        specifier: workspace:*
+        version: link:../git
+
   packages/leakage:
     dependencies:
       '@repoarena/task-spec':
