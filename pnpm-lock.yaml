@@ -59,6 +59,9 @@ importers:
 
   packages/benchmark-engine:
     dependencies:
+      '@repoarena/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
       '@repoarena/core':
         specifier: workspace:*
         version: link:../core
@@ -202,6 +205,9 @@ importers:
 
   packages/runner-core:
     dependencies:
+      '@repoarena/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
       '@repoarena/core':
         specifier: workspace:*
         version: link:../core
@@ -214,6 +220,12 @@ importers:
       '@repoarena/integrity':
         specifier: workspace:*
         version: link:../integrity
+      '@repoarena/redaction':
+        specifier: workspace:*
+        version: link:../redaction
+      '@repoarena/sandbox-local':
+        specifier: workspace:*
+        version: link:../sandbox-local
       '@repoarena/task-spec':
         specifier: workspace:*
         version: link:../task-spec

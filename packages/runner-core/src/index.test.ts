@@ -269,3 +269,68 @@ it("captures untracked agent files in the canonical patch", async () => {
 		expect.objectContaining({ status: "A", path: "new file.txt" }),
 	);
 });
+
+it("collects allowlisted artifacts and redacts secrets before persistence", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-safe-output-"));
+	dirs.push(root);
+	execFileSync("git", ["init"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+		cwd: root,
+	});
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+	await writeFile(join(root, "subject.txt"), "base\n");
+	execFileSync("git", ["add", "."], { cwd: root });
+	execFileSync("git", ["commit", "-m", "base"], { cwd: root });
+	const head = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: root,
+		encoding: "utf8",
+	}).trim();
+	const task = taskSchema.parse({
+		schema: "repoarena.task/v1",
+		id: "safe-output",
+		title: "safe output",
+		prompt: "repair",
+		source: { type: "imported", base_commit: head },
+		verification: {
+			required: [
+				{
+					id: "public",
+					command: [
+						process.execPath,
+						"-e",
+						"process.stdout.write(require('fs').readFileSync('log.txt','utf8'))",
+					],
+				},
+			],
+		},
+		provenance: {
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
+			created_by: "test",
+		},
+	});
+	const secret = "provider-secret-123456";
+	const result = await runIsolatedAttempt({
+		root,
+		task,
+		secrets: [secret],
+		artifactRequests: [
+			{ path: "log.txt", visibility: "PUBLIC", source: "agent" },
+		],
+		agentArgv: [
+			process.execPath,
+			"-e",
+			`require('fs').writeFileSync('log.txt', ${JSON.stringify(secret)})`,
+		],
+		privateData: {
+			task_id: task.id,
+			reference_commit: null,
+			reference_patch: null,
+			hidden_hook_source: null,
+			private_notes: [],
+		},
+	});
+	expect(result.artifacts).toHaveLength(1);
+	expect(result.public_verification[0]?.stdout).toBe("[REDACTED]");
+	expect(JSON.stringify(result)).not.toContain(secret);
+});

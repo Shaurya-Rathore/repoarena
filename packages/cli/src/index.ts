@@ -496,6 +496,7 @@ program
 						stdout: result.stdout,
 						stderr: result.stderr,
 						timed_out: result.timed_out,
+						...(result.usage ? { usage: result.usage } : {}),
 					};
 				},
 			});

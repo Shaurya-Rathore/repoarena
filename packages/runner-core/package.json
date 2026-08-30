@@ -10,10 +10,14 @@
 		"test:unit": "vitest run --passWithNoTests"
 	},
 	"dependencies": {
+		"@repoarena/artifacts": "workspace:*",
 		"@repoarena/core": "workspace:*",
 		"@repoarena/evaluator": "workspace:*",
 		"@repoarena/git": "workspace:*",
 		"@repoarena/integrity": "workspace:*",
+		"@repoarena/redaction": "workspace:*",
+		"@repoarena/sandbox-local": "workspace:*",
+		"@repoarena/pricing": "workspace:*",
 		"@repoarena/task-spec": "workspace:*"
 	}
 }

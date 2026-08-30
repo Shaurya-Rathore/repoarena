@@ -71,6 +71,13 @@ export type PersistedAttempt = Readonly<{
 		class: "PROVIDER_RETRY" | "INFRASTRUCTURE_RETRY";
 		reason: string;
 	}[];
+	artifacts: readonly {
+		path: string;
+		size: number;
+		sha256: string;
+		visibility: "PUBLIC" | "PRIVATE" | "EVALUATOR_PRIVATE";
+		media_type: string;
+	}[];
 }>;
 export type PersistedRun = Readonly<{
 	schema: "repoarena.benchmark-run/v1";

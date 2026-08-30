@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { contentHash, RepoArenaError } from "@repoarena/core";
 import {
+	collectArtifactManifest,
+	type ArtifactManifestEntry,
+	type ArtifactRequest,
+} from "@repoarena/artifacts";
+import {
 	evaluate,
 	verification,
 	type PublicEvaluationResult,
@@ -11,6 +16,9 @@ import {
 import { GitRepository, type ChangedFile } from "@repoarena/git";
 import { analyzeIntegrity, type IntegrityPolicy } from "@repoarena/integrity";
 import type { EvaluatorPrivateTaskData, Task } from "@repoarena/task-spec";
+import { SecretRedactor } from "@repoarena/redaction";
+import type { SandboxProvider } from "@repoarena/sandbox-local";
+import type { Usage } from "@repoarena/pricing";
 
 export type AttemptState =
 	| "QUEUED"
@@ -18,6 +26,7 @@ export type AttemptState =
 	| "SETUP"
 	| "AGENT_RUNNING"
 	| "VERIFYING"
+	| "VERIFYING_PRIVATE"
 	| "COLLECTING"
 	| "COMPLETED"
 	| "FAILED"
@@ -29,7 +38,14 @@ const transitions: Record<AttemptState, readonly AttemptState[]> = {
 	SETUP: ["AGENT_RUNNING", "FAILED", "TIMED_OUT", "CANCELLED"],
 	AGENT_RUNNING: ["VERIFYING", "FAILED", "TIMED_OUT", "CANCELLED"],
 	VERIFYING: ["COLLECTING", "FAILED", "TIMED_OUT", "CANCELLED"],
-	COLLECTING: ["COMPLETED", "FAILED"],
+	COLLECTING: ["VERIFYING_PRIVATE", "COMPLETED", "FAILED"],
+	VERIFYING_PRIVATE: [
+		"COLLECTING",
+		"COMPLETED",
+		"FAILED",
+		"TIMED_OUT",
+		"CANCELLED",
+	],
 	COMPLETED: [],
 	FAILED: [],
 	CANCELLED: [],
@@ -54,6 +70,7 @@ export type CommandEvidence = {
 	stdout: string;
 	stderr: string;
 	timed_out: boolean;
+	usage?: Usage | null;
 };
 export async function runArgv(
 	argv: string[],
@@ -268,6 +285,8 @@ export type IsolatedAttemptResult = Readonly<{
 	public_verification: readonly CommandEvidence[];
 	private_verification: { passed: number; failed: number };
 	evaluation: PublicEvaluationResult;
+	artifacts: readonly ArtifactManifestEntry[];
+	agent_usage?: Readonly<Record<string, unknown>>;
 }>;
 
 /**
@@ -285,6 +304,9 @@ export async function runIsolatedAttempt(options: {
 		data: EvaluatorPrivateTaskData,
 	) => Promise<readonly string[][]>;
 	integrityPolicy?: IntegrityPolicy;
+	artifactRequests?: readonly ArtifactRequest[];
+	secrets?: readonly string[];
+	sandbox?: SandboxProvider;
 }): Promise<IsolatedAttemptResult> {
 	if ((options.agentArgv ? 1 : 0) + (options.agentExecutor ? 1 : 0) !== 1)
 		throw new RepoArenaError(
@@ -292,9 +314,13 @@ export async function runIsolatedAttempt(options: {
 			"Exactly one agent execution strategy is required.",
 		);
 	const agentWorkspace = await mkdtemp(join(tmpdir(), "repoarena-agent-"));
+	const redactor = new SecretRedactor([...(options.secrets ?? [])]);
 	const history: { state: AttemptState; at: string }[] = [];
-	const move = (state: AttemptState) =>
+	const move = (state: AttemptState) => {
+		const current = history.at(-1)?.state;
+		if (current) transitionAttempt(current, state);
 		history.push({ state, at: new Date().toISOString() });
+	};
 	move("QUEUED");
 	move("PREPARING");
 	try {
@@ -307,10 +333,31 @@ export async function runIsolatedAttempt(options: {
 		});
 		move("SETUP");
 		move("AGENT_RUNNING");
+		const execute = async (
+			argv: readonly string[],
+			cwd: string,
+			timeout: number,
+		) => {
+			if (!options.sandbox) return runArgv([...argv], cwd, timeout);
+			const result = await options.sandbox.execute({
+				argv: [...argv],
+				cwd,
+				env: { REPOARENA_NETWORK_POLICY: options.task.execution.network.mode },
+				timeout_seconds: timeout,
+			});
+			return {
+				command: JSON.stringify(argv),
+				exit_code: result.exit_code,
+				duration_ms: result.duration_ms,
+				stdout: result.stdout,
+				stderr: result.stderr,
+				timed_out: result.timed_out,
+			};
+		};
 		const agent = options.agentExecutor
 			? await options.agentExecutor(agentWorkspace)
-			: await runArgv(
-					[...(options.agentArgv ?? [])],
+			: await execute(
+					options.agentArgv ?? [],
 					agentWorkspace,
 					options.task.execution.timeout_seconds,
 				);
@@ -336,24 +383,34 @@ export async function runIsolatedAttempt(options: {
 				public_verification: [],
 				private_verification: { passed: 0, failed: 0 },
 				evaluation: result,
+				artifacts: [],
+				...(agent.usage ? { agent_usage: agent.usage } : {}),
 			};
 		}
 		move("VERIFYING");
 		const publicEvidence: CommandEvidence[] = [];
 		for (const check of options.task.verification.required) {
 			const evidence = Array.isArray(check.command)
-				? await runArgv(check.command, agentWorkspace, check.timeout_seconds)
+				? await execute(check.command, agentWorkspace, check.timeout_seconds)
 				: await runShell(
 						check.command.command,
 						agentWorkspace,
 						check.timeout_seconds,
 					);
-			publicEvidence.push(evidence);
+			publicEvidence.push({
+				...evidence,
+				stdout: redactor.redact(evidence.stdout),
+				stderr: redactor.redact(evidence.stderr),
+			});
 			if (evidence.exit_code !== 0 || evidence.timed_out) break;
 		}
 		move("COLLECTING");
 		const repository = new GitRepository(agentWorkspace);
-		const diff = await repository.getWorkingTreeDiff();
+		const rawDiff = await repository.getWorkingTreeDiff();
+		const diff = {
+			...rawDiff,
+			patch: redactor.redact(rawDiff.patch),
+		};
 		const privateWorkspace = await mkdtemp(
 			join(tmpdir(), "repoarena-evaluator-"),
 		);
@@ -361,6 +418,7 @@ export async function runIsolatedAttempt(options: {
 		try {
 			// Agent process is already closed; do not introduce private data before here.
 			await cp(agentWorkspace, privateWorkspace, { recursive: true });
+			move("VERIFYING_PRIVATE");
 			for (const argv of await (options.privateVerifier?.(
 				privateWorkspace,
 				options.privateData,
@@ -389,6 +447,9 @@ export async function runIsolatedAttempt(options: {
 				forbid_verification_changes: true,
 			},
 		);
+		const artifacts = options.artifactRequests?.length
+			? await collectArtifactManifest(agentWorkspace, options.artifactRequests)
+			: [];
 		const evaluator = evaluate({
 			public_checks: publicEvidence.map((item, index) =>
 				verification(
@@ -424,6 +485,8 @@ export async function runIsolatedAttempt(options: {
 			public_verification: publicEvidence,
 			private_verification: evaluator.hidden,
 			evaluation: evaluator,
+			artifacts,
+			...(agent.usage ? { agent_usage: agent.usage } : {}),
 		};
 	} finally {
 		await rm(agentWorkspace, { recursive: true, force: true });

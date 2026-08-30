@@ -26,6 +26,7 @@ export type BenchmarkAgent = Readonly<{
 	argv?: readonly string[];
 	execute?: (workspace: string, task: Task) => Promise<CommandEvidence>;
 	usage?: Usage | null;
+	secrets?: readonly string[];
 }>;
 export type BenchmarkTask = Readonly<{
 	task: Task;
@@ -34,6 +35,11 @@ export type BenchmarkTask = Readonly<{
 		workspace: string,
 		data: EvaluatorPrivateTaskData,
 	) => Promise<readonly string[][]>;
+	artifact_requests?: readonly {
+		path: string;
+		visibility: "PUBLIC" | "PRIVATE" | "EVALUATOR_PRIVATE";
+		source?: "agent" | "verification" | "evaluator" | "runner";
+	}[];
 }>;
 export type BenchmarkOptions = Readonly<{
 	root: string;
@@ -156,19 +162,29 @@ export async function runBenchmark(
 				...(job.t.private_verifier
 					? { privateVerifier: job.t.private_verifier }
 					: {}),
+				...(job.t.artifact_requests
+					? {
+							artifactRequests: job.t.artifact_requests.map((request) => ({
+								...request,
+								source: request.source ?? "agent",
+							})),
+						}
+					: {}),
+				...(job.a.secrets ? { secrets: job.a.secrets } : {}),
 			});
 			const ended = options.now?.() ?? new Date();
 			const lines = patchStats(raw.patch);
+			const observedUsage = raw.agent_usage ?? job.a.usage ?? null;
 			const usage = {
-				status: usageStatus(job.a.usage ?? null),
-				...(job.a.usage ?? {}),
+				status: usageStatus(observedUsage),
+				...(observedUsage ?? {}),
 			} as PersistedAttempt["usage"];
 			const costRaw = snapshotCost(
 				options.pricing,
 				job.a.provider,
 				job.a.model ?? "",
 				ended.toISOString(),
-				job.a.usage ?? null,
+				observedUsage,
 			);
 			const cost: PersistedAttempt["cost"] = {
 				status: costRaw.status,
@@ -242,6 +258,13 @@ export async function runBenchmark(
 						}
 					: null,
 				retries: [],
+				artifacts: raw.artifacts.map((artifact) => ({
+					path: artifact.logical_path,
+					size: artifact.size_bytes,
+					sha256: artifact.sha256,
+					visibility: artifact.visibility,
+					media_type: artifact.media_type,
+				})),
 			};
 			persist = persist.then(() =>
 				writeRunAtomic(options.state_path, snapshot("RUNNING")),
