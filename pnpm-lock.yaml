@@ -190,7 +190,11 @@ importers:
 
   packages/pricing: {}
 
-  packages/readiness: {}
+  packages/readiness:
+    dependencies:
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/redaction: {}
 
