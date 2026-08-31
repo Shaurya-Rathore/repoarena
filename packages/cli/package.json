@@ -20,6 +20,8 @@
 		"@repoarena/config": "workspace:*",
 		"@repoarena/core": "workspace:*",
 		"@repoarena/git": "workspace:*",
+		"@repoarena/local-product": "workspace:*",
+		"@repoarena/optimizer": "workspace:*",
 		"@repoarena/task-discovery": "workspace:*",
 		"@repoarena/task-reconstruction": "workspace:*",
 		"@repoarena/task-validation": "workspace:*",

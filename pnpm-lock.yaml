@@ -113,6 +113,12 @@ importers:
       '@repoarena/git':
         specifier: workspace:*
         version: link:../git
+      '@repoarena/local-product':
+        specifier: workspace:*
+        version: link:../local-product
+      '@repoarena/optimizer':
+        specifier: workspace:*
+        version: link:../optimizer
       '@repoarena/readiness':
         specifier: workspace:*
         version: link:../readiness
