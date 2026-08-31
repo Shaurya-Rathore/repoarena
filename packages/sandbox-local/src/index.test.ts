@@ -31,7 +31,7 @@ it("limits environment and output in workspace", async () => {
 		expect(r.stdout).toContain("[output truncated]");
 	} finally {
 		if (previous === undefined)
-			delete process.env.REPOARENA_HOST_CREDENTIAL_FIXTURE;
+			process.env.REPOARENA_HOST_CREDENTIAL_FIXTURE = undefined;
 		else process.env.REPOARENA_HOST_CREDENTIAL_FIXTURE = previous;
 	}
 });
