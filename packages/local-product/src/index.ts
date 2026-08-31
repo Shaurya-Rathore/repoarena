@@ -109,6 +109,16 @@ export function createLocalProductServer(options: LocalProductOptions): LocalPro
 		}
 		return values.sort((a, b) => b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id));
 	};
+	const readReadinessHistory = async (): Promise<ReadinessReport[]> => {
+		const values: ReadinessReport[] = [];
+		for (const file of await files(readinessDirectory, /\.json$/)) {
+			try {
+				const value = JSON.parse(await readFile(join(readinessDirectory, file), "utf8")) as ReadinessReport;
+				if (value.schema === "repoarena.readiness/v1") values.push(value);
+			} catch { /* corrupt history is omitted from lists, never fabricated */ }
+		}
+		return [...new Map(values.map((value) => [value.id, value])).values()].sort((a, b) => b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id));
+	};
 	const mutationAllowed = (request: IncomingMessage) => {
 		const origin = request.headers.origin;
 		const validOrigin = typeof origin === "string" && (origin === address?.url || origin.startsWith("http://localhost:"));
@@ -160,6 +170,7 @@ export function createLocalProductServer(options: LocalProductOptions): LocalPro
 			const attemptMatch = path.match(/^\/attempts\/([^/]+)$/);
 			if (request.method === "GET" && attemptMatch?.[1]) { const attempt = (await readRuns()).flatMap((run) => run.attempts).find((item) => item.id === decodeURIComponent(attemptMatch[1] ?? "")); return attempt ? json(response, 200, { data: attempt }) : json(response, 404, { error: { code: "ATTEMPT_NOT_FOUND", message: "Attempt was not found." } }); }
 			if (request.method === "GET" && path === "/readiness") { try { const value = JSON.parse(await readFile(join(readinessDirectory, "latest.json"), "utf8")) as ReadinessReport; return json(response, 200, { data: value }); } catch { return json(response, 200, { data: null }); } }
+			if (request.method === "GET" && path === "/readiness/history") { const query = querySchema.parse(Object.fromEntries(url.searchParams)); const all = await readReadinessHistory(); return json(response, 200, { data: { items: all.slice(query.offset, query.offset + query.limit), total: all.length, offset: query.offset, limit: query.limit } }); }
 			if (request.method === "POST" && path === "/readiness") { if (!mutationAllowed(request)) return json(response, 403, { error: { code: "FORBIDDEN", message: "Same-origin CSRF validation failed." } }); const report = await assessRepository(options.root); await atomicJson(join(readinessDirectory, `${report.id}.json`), report); await atomicJson(join(readinessDirectory, "latest.json"), report); return json(response, 201, { data: report }); }
 			if (request.method === "GET" && path === "/optimizations") { const query = querySchema.parse(Object.fromEntries(url.searchParams)); const all = await readOptimizations(); return json(response, 200, { data: { items: all.slice(query.offset, query.offset + query.limit), total: all.length, offset: query.offset, limit: query.limit } }); }
 			const optimizationMatch = path.match(/^\/optimizations\/([^/]+)$/);

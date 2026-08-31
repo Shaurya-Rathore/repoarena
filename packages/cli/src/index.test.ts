@@ -130,6 +130,9 @@ it("runs the connected engine and writes every public report", async () => {
 	}
 	const doctor = await execute(process.execPath, [cli, "doctor", "--json"], { cwd: root });
 	expect(JSON.parse(doctor.stdout).schema).toBe("repoarena.readiness/v1");
+	const humanDoctor = await execute(process.execPath, [cli, "doctor"], { cwd: root });
+	expect(humanDoctor.stdout).toContain("Repository readiness:");
+	expect(humanDoctor.stdout).toContain("Recommendation:");
 	expect(await readFile(join(root, ".repoarena", "state", "readiness", "latest.json"), "utf8")).toContain("repoarena.readiness/v1");
 	await writeFile(join(root, "search.yaml"), [
 		"schema: repoarena.optimizer-search/v1",

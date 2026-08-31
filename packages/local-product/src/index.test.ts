@@ -47,6 +47,8 @@ it("serves typed public repository, task, run, attempt, readiness and optimizer 
 	const denied = await fetch(`${address.url}/api/v1/readiness`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); expect(denied.status).toBe(403);
 	const mutationHeaders = { "content-type": "application/json", origin: address.url, "x-repoarena-csrf": local.csrfToken };
 	const readiness = await fetch(`${address.url}/api/v1/readiness`, { method: "POST", headers: mutationHeaders, body: "{}" }); expect(readiness.status).toBe(201);
+	const readinessHistory = await fetch(`${address.url}/api/v1/readiness/history?limit=10`).then((response) => response.json()) as { data: { total: number } };
+	expect(readinessHistory.data.total).toBe(1);
 	const search = { schema: "repoarena.optimizer-search/v1", dimensions: [{ agent: "fake", models: ["fast"] }], tasks: ["fix-widget"], budget: { max_trials: 1 } };
 	const optimized = await fetch(`${address.url}/api/v1/optimizations`, { method: "POST", headers: mutationHeaders, body: JSON.stringify(search) }); expect(optimized.status).toBe(201); const optimization = (await optimized.json()) as { data: { id: string } };
 	const profile = await fetch(`${address.url}/api/v1/optimizations/${optimization.data.id}/profile`); expect(await profile.text()).toContain("repoarena.profile/v1");

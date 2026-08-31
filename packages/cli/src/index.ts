@@ -20,7 +20,7 @@ import { contentHash, RepoArenaError } from "@repoarena/core";
 import { GitRepository } from "@repoarena/git";
 import { createLocalProductServer } from "@repoarena/local-product";
 import { exportRecommendedProfile, optimize, searchSpaceSchema, writeOptimizationRunAtomic, type CandidateConfiguration, type TrialMetrics } from "@repoarena/optimizer";
-import { assessRepository } from "@repoarena/readiness";
+import { assessRepository, writeReadinessReportAtomic } from "@repoarena/readiness";
 import { toHtml, toJson, toJunit, toTerminal } from "@repoarena/reporter";
 import { loadRun, writeRunAtomic } from "@repoarena/run-store";
 import { DockerSandboxProvider } from "@repoarena/sandbox-docker";
@@ -201,10 +201,12 @@ program
 	.action(async (options) => {
 		const report = await assessRepository(root);
 		const directory = join(root, ".repoarena", "state", "readiness");
-		await mkdir(directory, { recursive: true });
-		await writeFile(join(directory, `${report.id}.json`), `${JSON.stringify(report)}\n`);
-		await writeFile(join(directory, "latest.json"), `${JSON.stringify(report)}\n`);
-		output(report, options.json);
+		await writeReadinessReportAtomic(join(directory, `${report.id}.json`), report);
+		await writeReadinessReportAtomic(join(directory, "latest.json"), report);
+		if (options.json) return output(report, true);
+		const dimensions = report.dimensions.map((item) => `  ${item.id.padEnd(16)} ${String(item.score).padStart(2)}/${item.max}`).join("\n");
+		const findings = report.findings.length === 0 ? "  No deterministic findings." : report.findings.map((item) => `  [${item.severity}] ${item.title}\n    ${item.evidence}\n    Recommendation: ${item.recommendation}${item.path ? `\n    Path: ${item.path}` : ""}`).join("\n");
+		output(`Repository readiness: ${report.score}/100 (${report.status})\n\nCategories\n${dimensions}\n\nFindings\n${findings}`);
 	});
 const tasks = program.command("tasks").description("Manage benchmark tasks");
 tasks

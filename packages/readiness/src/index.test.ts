@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { assessRepository } from "./index.js";
+import { assessRepository, writeReadinessReportAtomic } from "./index.js";
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 const fixture = async (files: Record<string, string>) => { const root = await mkdtemp(join(tmpdir(), "repoarena-ready-")); roots.push(root); for (const [path, content] of Object.entries(files)) { await mkdir(join(root, path, ".."), { recursive: true }); await writeFile(join(root, path), content); } return root; };
@@ -17,4 +17,13 @@ it("explains missing tests, environment, guidance, services, monorepo and genera
 	const report = await assessRepository(root, { now: "2026-01-01T00:00:00.000Z" });
 	expect(report.findings.map((item) => item.id)).toEqual(expect.arrayContaining(["tests.missing", "tests.slow-suite", "tests.flaky-signal", "environment.unspecified", "environment.network-assumption", "agent-guidance.missing", "dependencies.services", "complexity.monorepo", "complexity.generated"]));
 	expect(report.score).toBeLessThan(70); expect(report.status).toBe("BLOCKED"); expect(report.findings.every((item) => item.evidence && item.recommendation)).toBe(true);
+});
+it("persists a readiness snapshot atomically without disturbing stale temporary files", async () => {
+	const root = await fixture({ ".git/HEAD": "main" });
+	const report = await assessRepository(root, { now: "2026-01-01T00:00:00.000Z" });
+	const destination = join(root, ".repoarena", "state", "readiness", "latest.json");
+	await mkdir(join(destination, ".."), { recursive: true });
+	await writeFile(join(destination, "..", ".readiness-interrupted.tmp"), "partial");
+	await writeReadinessReportAtomic(destination, report);
+	expect(JSON.parse(await readFile(destination, "utf8"))).toEqual(report);
 });

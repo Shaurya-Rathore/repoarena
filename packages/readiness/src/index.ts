@@ -1,6 +1,6 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { contentHash } from "@repoarena/core";
 
 export type ReadinessSeverity = "INFO" | "WARNING" | "ERROR";
@@ -107,4 +107,21 @@ export async function assessRepository(root: string, options: { now?: string } =
 	const score = dimensions.reduce((sum, item) => sum + item.score, 0);
 	const fingerprint = contentHash({ files, dimensions, findings });
 	return { schema: "repoarena.readiness/v1", id: fingerprint.slice(0, 24), repository_fingerprint: fingerprint, created_at: options.now ?? new Date().toISOString(), score, status: findings.some((item) => item.severity === "ERROR") ? "BLOCKED" : score >= 80 ? "READY" : "NEEDS_ATTENTION", dimensions, findings };
+}
+
+export async function writeReadinessReportAtomic(path: string, report: ReadinessReport): Promise<void> {
+	await mkdir(dirname(path), { recursive: true });
+	const temporary = join(dirname(path), `.readiness-${crypto.randomUUID()}.tmp`);
+	const file = await open(temporary, "wx", 0o600);
+	try {
+		await file.writeFile(`${JSON.stringify(report)}\n`, "utf8");
+		await file.sync();
+	} finally {
+		await file.close();
+	}
+	try {
+		await rename(temporary, path);
+	} finally {
+		await rm(temporary, { force: true });
+	}
 }
