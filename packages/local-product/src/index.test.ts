@@ -42,7 +42,7 @@ it("serves typed public repository, task, run, attempt, readiness and optimizer 
 	const get = async (path: string) => (await (await fetch(`${address.url}/api/v1${path}`)).json()) as { data: any };
 	const repository = await get("/repository"); expect(repository.data.initialized).toBe(true);
 	const tasks = await get("/tasks?limit=10"); expect(tasks.data.total).toBe(1); expect(JSON.stringify(tasks)).not.toContain("REFERENCE-SOLUTION"); expect(tasks.data.items[0].source.reference_commit).toBeUndefined();
-	const runs = await get("/runs?limit=10"); expect(runs.data.items[0].statistics.total_cost_micros).toBe(1200); expect(JSON.stringify(runs)).not.toContain("hidden.txt");
+	const runs = await get("/runs?limit=10&agent=fake&status=COMPLETED"); expect(runs.data.items[0].statistics.total_cost_micros).toBe(1200); expect(runs.data.items[0].agents[0].attempts).toBe(1); expect(runs.data.items[0].attempts).toBeUndefined(); expect(JSON.stringify(runs)).not.toContain("hidden.txt");
 	const attemptResult = await get("/attempts/attempt-1"); expect(attemptResult.data.patch.unified_diff).toContain("fixed"); expect(attemptResult.data.agent_execution.stdout).toBe("agent log");
 	const denied = await fetch(`${address.url}/api/v1/readiness`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); expect(denied.status).toBe(403);
 	const mutationHeaders = { "content-type": "application/json", origin: address.url, "x-repoarena-csrf": local.csrfToken };

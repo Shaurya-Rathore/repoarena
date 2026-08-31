@@ -7,7 +7,7 @@ import { GitRepository } from "@repoarena/git";
 import { exportRecommendedProfile, optimize, searchSpaceSchema, type OptimizationRun, type TrialExecutor } from "@repoarena/optimizer";
 import { assessRepository, type ReadinessReport } from "@repoarena/readiness";
 import { loadRun, type PersistedRun } from "@repoarena/run-store";
-import { taskSchema, toAgentVisibleTask, type AgentVisibleTask } from "@repoarena/task-spec";
+import { taskSchema, toAgentVisibleTask, type AgentVisibleTask, type Task } from "@repoarena/task-spec";
 import { parse } from "yaml";
 import { z } from "zod";
 import { html } from "./assets.js";
@@ -25,7 +25,16 @@ export type LocalProductServer = Readonly<{
 	start(): Promise<{ host: string; port: number; url: string }>;
 	close(): Promise<void>;
 }>;
+type LocalPublicTask = Readonly<
+	AgentVisibleTask & {
+		validation: Task["validation"];
+		provenance: Task["provenance"];
+		source: AgentVisibleTask["source"] & Pick<Task["source"], "issue_url" | "pr_url" | "discovery">;
+	}
+>;
 const querySchema = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(200).default(50), search: z.string().max(200).default("") });
+const taskQuerySchema = querySchema.extend({ source: z.string().max(40).default(""), status: z.string().max(40).default(""), min_quality: z.coerce.number().min(0).max(1).default(0) });
+const runQuerySchema = querySchema.extend({ agent: z.string().max(100).default(""), model: z.string().max(200).default(""), status: z.string().max(40).default(""), from: z.string().max(40).default(""), to: z.string().max(40).default("") });
 const json = (response: ServerResponse, status: number, value: unknown) => {
 	response.statusCode = status;
 	response.setHeader("content-type", "application/json; charset=utf-8");
@@ -56,6 +65,15 @@ const atomicJson = async (path: string, value: unknown) => {
 	try { await rename(temporary, path); } finally { await rm(temporary, { force: true }); }
 };
 const publicRun = (run: PersistedRun): PersistedRun => ({ ...run, attempts: run.attempts.map((attempt) => ({ ...attempt, artifacts: attempt.artifacts.filter((artifact) => artifact.visibility !== "EVALUATOR_PRIVATE") })) });
+const runSummary = (run: PersistedRun) => {
+	const groups = new Map<string, { id: string; model: string | null; attempts: number; solved: number; duration_ms: number; cost_micros: number }>();
+	for (const attempt of run.attempts) {
+		const key = `${attempt.agent.id}\0${attempt.agent.model ?? ""}`;
+		const group = groups.get(key) ?? { id: attempt.agent.id, model: attempt.agent.model, attempts: 0, solved: 0, duration_ms: 0, cost_micros: 0 };
+		group.attempts++; group.solved += attempt.evaluation.outcome === "SOLVED" ? 1 : 0; group.duration_ms += attempt.duration_ms; group.cost_micros += attempt.cost.micros ?? 0; groups.set(key, group);
+	}
+	return { schema: run.schema, id: run.id, status: run.status, repository: run.repository, configuration: run.configuration, statistics: run.statistics, created_at: run.created_at, updated_at: run.updated_at, agents: [...groups.values()].sort((a, b) => a.id.localeCompare(b.id) || (a.model ?? "").localeCompare(b.model ?? "")) };
+};
 
 export function createLocalProductServer(options: LocalProductOptions): LocalProductServer {
 	const host = options.host ?? "127.0.0.1";
@@ -65,9 +83,16 @@ export function createLocalProductServer(options: LocalProductOptions): LocalPro
 	const runsDirectory = join(options.root, ".repoarena", "state", "runs");
 	const readinessDirectory = join(options.root, ".repoarena", "state", "readiness");
 	const optimizationDirectory = join(options.root, ".repoarena", "state", "optimizations");
-	const readTasks = async (): Promise<AgentVisibleTask[]> => Promise.all((await files(taskDirectory, /\.(json|ya?ml)$/i)).map(async (file) => {
+	const readTasks = async (): Promise<LocalPublicTask[]> => Promise.all((await files(taskDirectory, /\.(json|ya?ml)$/i)).map(async (file) => {
 		const raw = await readFile(join(taskDirectory, file), "utf8");
-		return toAgentVisibleTask(taskSchema.parse(file.endsWith(".json") ? JSON.parse(raw) : parse(raw)));
+		const task = taskSchema.parse(file.endsWith(".json") ? JSON.parse(raw) : parse(raw));
+		const visible = toAgentVisibleTask(task);
+		return {
+			...visible,
+			source: { ...visible.source, issue_url: task.source.issue_url, pr_url: task.source.pr_url, discovery: task.source.discovery },
+			validation: task.validation,
+			provenance: task.provenance,
+		};
 	}));
 	const readRuns = async (): Promise<PersistedRun[]> => {
 		const values = await Promise.all((await files(runsDirectory, /\.json$/)).map((file) => loadRun(join(runsDirectory, file)).catch(() => null)));
@@ -116,9 +141,10 @@ export function createLocalProductServer(options: LocalProductOptions): LocalPro
 				return json(response, 200, { data: await writeConfigAtomic(options.root, await readBody(request)) });
 			}
 			if (request.method === "GET" && path === "/tasks") {
-				const query = querySchema.parse(Object.fromEntries(url.searchParams));
-				const all = (await readTasks()).filter((task) => `${task.id} ${task.title} ${task.metadata.tags.join(" ")}`.toLowerCase().includes(query.search.toLowerCase()));
-				return json(response, 200, { data: { items: all.slice(query.offset, query.offset + query.limit), total: all.length, offset: query.offset, limit: query.limit } });
+				const query = taskQuerySchema.parse(Object.fromEntries(url.searchParams));
+				const all = (await readTasks()).filter((task) => `${task.id} ${task.title} ${task.metadata.tags.join(" ")}`.toLowerCase().includes(query.search.toLowerCase()) && (!query.source || task.source.type === query.source) && (!query.status || task.validation.status === query.status) && (task.metadata.quality_score ?? 0) >= query.min_quality);
+				const items = all.slice(query.offset, query.offset + query.limit).map((task) => ({ id: task.id, title: task.title, source: task.source, validation: task.validation, metadata: task.metadata }));
+				return json(response, 200, { data: { items, total: all.length, offset: query.offset, limit: query.limit } });
 			}
 			const taskMatch = path.match(/^\/tasks\/([^/]+)$/);
 			if (request.method === "GET" && taskMatch?.[1]) {
@@ -126,8 +152,8 @@ export function createLocalProductServer(options: LocalProductOptions): LocalPro
 				return task ? json(response, 200, { data: task }) : json(response, 404, { error: { code: "TASK_NOT_FOUND", message: "Task was not found." } });
 			}
 			if (request.method === "GET" && path === "/runs") {
-				const query = querySchema.parse(Object.fromEntries(url.searchParams)); const all = await readRuns();
-				return json(response, 200, { data: { items: all.slice(query.offset, query.offset + query.limit), total: all.length, offset: query.offset, limit: query.limit } });
+				const query = runQuerySchema.parse(Object.fromEntries(url.searchParams)); const all = (await readRuns()).filter((run) => (!query.status || run.status === query.status) && (!query.agent || run.attempts.some((attempt) => attempt.agent.id === query.agent)) && (!query.model || run.attempts.some((attempt) => attempt.agent.model === query.model)) && (!query.from || run.created_at >= query.from) && (!query.to || run.created_at <= query.to));
+				return json(response, 200, { data: { items: all.slice(query.offset, query.offset + query.limit).map(runSummary), total: all.length, offset: query.offset, limit: query.limit } });
 			}
 			const runMatch = path.match(/^\/runs\/([^/]+)$/);
 			if (request.method === "GET" && runMatch?.[1]) { const run = (await readRuns()).find((item) => item.id === decodeURIComponent(runMatch[1] ?? "")); return run ? json(response, 200, { data: run }) : json(response, 404, { error: { code: "RUN_NOT_FOUND", message: "Run was not found." } }); }
