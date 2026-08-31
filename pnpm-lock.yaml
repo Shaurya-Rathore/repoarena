@@ -188,6 +188,18 @@ importers:
         specifier: workspace:*
         version: link:../task-spec
 
+  packages/optimizer:
+    dependencies:
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+      yaml:
+        specifier: 2.6.1
+        version: 2.6.1
+      zod:
+        specifier: 3.24.1
+        version: 3.24.1
+
   packages/pricing: {}
 
   packages/readiness:
