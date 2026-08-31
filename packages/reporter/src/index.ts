@@ -52,7 +52,14 @@ function attemptHtml(a: PersistedAttempt): string {
 		a.regressions
 			.map((i) => `<li>${escapeHtml(i.code)}: ${escapeHtml(i.message)}</li>`)
 			.join("") || "<li>none</li>";
-	return `<article><h3>${escapeHtml(a.task_id)} · ${escapeHtml(a.agent.id)}</h3><p>Outcome: <strong>${escapeHtml(a.evaluation.outcome)}</strong> ${escapeHtml(a.evaluation.reason ?? "")}</p><p>Hidden: ${a.private_verification.passed} passed, ${a.private_verification.failed} failed</p><p>Patch: ${a.patch.files_changed} files, +${a.patch.lines_added}/-${a.patch.lines_removed}</p><p>Usage: ${escapeHtml(a.usage.status)} · Cost: ${escapeHtml(dollars(a.cost.micros))}</p><h4>Public verification</h4><ul>${checks}</ul><h4>Integrity</h4><ul>${integrity}</ul><h4>Regressions</h4><ul>${regressions}</ul></article>`;
+	const files =
+		(a.patch.files ?? [])
+			.map(
+				(file) =>
+					`<li>${escapeHtml(file.status)}: ${escapeHtml(file.previous_path ? `${file.previous_path} → ${file.path}` : file.path)}</li>`,
+			)
+			.join("") || "<li>none</li>";
+	return `<article><h3>${escapeHtml(a.task_id)} · ${escapeHtml(a.agent.id)}</h3><p>Outcome: <strong>${escapeHtml(a.evaluation.outcome)}</strong> ${escapeHtml(a.evaluation.reason ?? "")}</p><p>Hidden: ${a.private_verification.passed} passed, ${a.private_verification.failed} failed</p><p>Patch: ${a.patch.files_changed} files, +${a.patch.lines_added}/-${a.patch.lines_removed}</p><h4>Changed files</h4><ul>${files}</ul><p>Usage: ${escapeHtml(a.usage.status)} · Cost: ${escapeHtml(dollars(a.cost.micros))}</p><h4>Public verification</h4><ul>${checks}</ul><h4>Integrity</h4><ul>${integrity}</ul><h4>Regressions</h4><ul>${regressions}</ul></article>`;
 }
 export function toHtml(run: PersistedRun): string {
 	const rows = run.attempts

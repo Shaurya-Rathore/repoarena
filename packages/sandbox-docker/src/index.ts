@@ -82,7 +82,7 @@ export class DockerSandboxProvider implements SandboxProvider {
 			"--pids-limit",
 			String(this.resources.pids ?? 128),
 			"--network",
-			command.env.REPOARENA_NETWORK_POLICY === "UNRESTRICTED"
+			command.env.REPOARENA_NETWORK_POLICY?.toLowerCase() === "unrestricted"
 				? "bridge"
 				: "none",
 			"--mount",
@@ -93,22 +93,40 @@ export class DockerSandboxProvider implements SandboxProvider {
 		if (this.resources.cpu) args.push("--cpus", String(this.resources.cpu));
 		if (this.resources.memory_mb)
 			args.push("--memory", `${this.resources.memory_mb}m`);
-		for (const [key, value] of Object.entries(command.env))
-			args.push("--env", `${key}=${value}`);
+		for (const key of Object.keys(command.env).sort()) args.push("--env", key);
 		args.push(this.image, ...command.argv);
 		return args;
 	}
 	async execute(command: SandboxCommand): Promise<SandboxResult> {
-		const args = this.buildArgs(command);
+		const name = `ra-${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+		const args = this.buildArgs(command, name);
 		return new Promise((resolve) => {
 			const start = performance.now();
 			const p = spawn("docker", args, {
 				stdio: ["ignore", "pipe", "pipe"],
 				shell: false,
+				env: { PATH: process.env.PATH ?? "", ...command.env },
 			});
 			let stdout = "";
 			let stderr = "";
 			let timed = false;
+			let cancelled = command.signal?.aborted ?? false;
+			const removeContainer = () => {
+				const cleanup = spawn("docker", ["rm", "--force", name], {
+					stdio: "ignore",
+					shell: false,
+					env: { PATH: process.env.PATH ?? "" },
+				});
+				cleanup.on("error", () => {
+					// Capability diagnostics report Docker availability separately.
+				});
+				cleanup.unref();
+			};
+			const terminate = () => {
+				removeContainer();
+				p.kill("SIGTERM");
+				setTimeout(() => p.kill("SIGKILL"), 250).unref();
+			};
 			p.stdout.on("data", (c) => {
 				stdout += String(c);
 			});
@@ -117,11 +135,17 @@ export class DockerSandboxProvider implements SandboxProvider {
 			});
 			const t = setTimeout(() => {
 				timed = true;
-				p.kill("SIGTERM");
-				setTimeout(() => p.kill("SIGKILL"), 1000).unref();
+				terminate();
 			}, command.timeout_seconds * 1000);
+			const onAbort = () => {
+				cancelled = true;
+				terminate();
+			};
+			command.signal?.addEventListener("abort", onAbort, { once: true });
+			if (cancelled) terminate();
 			p.on("close", (code, signal) => {
 				clearTimeout(t);
+				command.signal?.removeEventListener("abort", onAbort);
 				resolve({
 					argv: command.argv,
 					cwd: command.cwd,
@@ -130,11 +154,14 @@ export class DockerSandboxProvider implements SandboxProvider {
 					exit_code: code,
 					signal,
 					timed_out: timed,
+					cancelled,
 					duration_ms: Math.round(performance.now() - start),
 				});
 			});
 			p.on("error", (e) => {
 				clearTimeout(t);
+				command.signal?.removeEventListener("abort", onAbort);
+				removeContainer();
 				resolve({
 					argv: command.argv,
 					cwd: command.cwd,
@@ -143,6 +170,7 @@ export class DockerSandboxProvider implements SandboxProvider {
 					exit_code: null,
 					signal: null,
 					timed_out: false,
+					cancelled,
 					duration_ms: Math.round(performance.now() - start),
 				});
 			});

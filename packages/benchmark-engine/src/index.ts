@@ -11,8 +11,10 @@ import {
 	type PersistedRun,
 } from "@repoarena/run-store";
 import {
+	LocalAttemptPhaseCoordinator,
 	runIsolatedAttempt,
 	type CommandEvidence,
+	type SandboxProvider,
 } from "@repoarena/runner-core";
 import { aggregateAttempts } from "@repoarena/statistics";
 import type { EvaluatorPrivateTaskData, Task } from "@repoarena/task-spec";
@@ -24,7 +26,11 @@ export type BenchmarkAgent = Readonly<{
 	provider: string;
 	config_hash: string;
 	argv?: readonly string[];
-	execute?: (workspace: string, task: Task) => Promise<CommandEvidence>;
+	execute?: (
+		workspace: string,
+		task: Task,
+		signal?: AbortSignal,
+	) => Promise<CommandEvidence>;
 	usage?: Usage | null;
 	secrets?: readonly string[];
 }>;
@@ -56,6 +62,9 @@ export type BenchmarkOptions = Readonly<{
 	infrastructure_retry_limit?: number;
 	retry_backoff_ms?: readonly number[];
 	sleep?: (milliseconds: number) => Promise<void>;
+	signal?: AbortSignal;
+	sandbox_id?: string;
+	sandbox_factory?: (workspace: string) => SandboxProvider;
 }>;
 
 export class BenchmarkRetryError extends Error {
@@ -82,6 +91,8 @@ const patchStats = (patch: string) => {
 	}
 	return { added, removed };
 };
+
+const localPhaseCoordinator = new LocalAttemptPhaseCoordinator();
 
 export async function runBenchmark(
 	options: BenchmarkOptions,
@@ -149,7 +160,7 @@ export async function runBenchmark(
 				runs_per_task: options.runs_per_task,
 				parallelism: options.parallelism,
 				runner_version: options.runner_version,
-				sandbox: "local",
+				sandbox: options.sandbox_id ?? "local",
 			},
 			attempts,
 			statistics,
@@ -160,6 +171,7 @@ export async function runBenchmark(
 	await writeRunAtomic(options.state_path, snapshot("RUNNING"));
 	const worker = async () => {
 		for (;;) {
+			if (options.signal?.aborted) return;
 			const position = cursor++;
 			const job = jobs[position];
 			if (!job) return;
@@ -178,6 +190,7 @@ export async function runBenchmark(
 										job.a.execute?.(
 											workspace,
 											job.t.task,
+											options.signal,
 										) as Promise<CommandEvidence>,
 								}
 							: {}),
@@ -194,6 +207,11 @@ export async function runBenchmark(
 								}
 							: {}),
 						...(job.a.secrets ? { secrets: job.a.secrets } : {}),
+						...(options.signal ? { signal: options.signal } : {}),
+						...(options.sandbox_factory
+							? { sandboxFactory: options.sandbox_factory }
+							: {}),
+						phaseCoordinator: localPhaseCoordinator,
 					});
 					break;
 				} catch (error) {
@@ -213,11 +231,22 @@ export async function runBenchmark(
 						at: (options.now?.() ?? new Date()).toISOString(),
 					});
 					const delay = options.retry_backoff_ms?.[retries.length - 1] ?? 0;
-					if (delay > 0)
-						await (
+					if (delay > 0) {
+						const sleep =
 							options.sleep ??
-							((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
-						)(delay);
+							((ms: number) =>
+								new Promise<void>((resolve) => setTimeout(resolve, ms)));
+						if (!options.signal) await sleep(delay);
+						else
+							await Promise.race([
+								sleep(delay),
+								new Promise<void>((resolve) =>
+									options.signal?.addEventListener("abort", () => resolve(), {
+										once: true,
+									}),
+								),
+							]);
+					}
 				}
 			}
 			if (!raw) throw new Error("attempt did not produce a result");
@@ -261,16 +290,18 @@ export async function runBenchmark(
 					config_hash: job.a.config_hash,
 				},
 				sandbox: {
-					provider: "local",
+					provider: options.sandbox_id ?? "local",
 					network_policy: job.t.task.execution.network.mode,
 				},
 				state:
-					raw.state_history.at(-1)?.state === "TIMED_OUT"
-						? "TIMED_OUT"
-						: raw.state_history.at(-1)?.state === "FAILED" ||
-								raw.evaluation.outcome === "INFRASTRUCTURE_FAILURE"
-							? "FAILED"
-							: "COMPLETED",
+					raw.state_history.at(-1)?.state === "CANCELLED"
+						? "CANCELLED"
+						: raw.state_history.at(-1)?.state === "TIMED_OUT"
+							? "TIMED_OUT"
+							: raw.state_history.at(-1)?.state === "FAILED" ||
+									raw.evaluation.outcome === "INFRASTRUCTURE_FAILURE"
+								? "FAILED"
+								: "COMPLETED",
 				state_history: raw.state_history,
 				started_at: started.toISOString(),
 				ended_at: ended.toISOString(),
@@ -281,6 +312,11 @@ export async function runBenchmark(
 					files_changed: raw.changed_files.length,
 					lines_added: lines.added,
 					lines_removed: lines.removed,
+					files: raw.changed_files.map((file) => ({
+						status: file.status,
+						path: file.path,
+						...(file.previousPath ? { previous_path: file.previousPath } : {}),
+					})),
 				},
 				public_verification: raw.public_verification.map((e, index) => ({
 					id: `public-${index}`,
@@ -325,7 +361,9 @@ export async function runBenchmark(
 		Array.from({ length: Math.min(options.parallelism, jobs.length) }, worker),
 	);
 	await persist;
-	const completed = snapshot("COMPLETED");
+	const completed = snapshot(
+		options.signal?.aborted ? "CANCELLED" : "COMPLETED",
+	);
 	await writeRunAtomic(options.state_path, completed);
 	return completed;
 }

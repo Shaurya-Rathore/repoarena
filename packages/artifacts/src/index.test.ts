@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { collectArtifactManifest } from "./index.js";
+import { createHash } from "node:crypto";
 
 const roots: string[] = [];
 async function fixture(): Promise<string> {
@@ -47,6 +48,20 @@ it("rejects traversal and symlink escapes", async () => {
 	).rejects.toThrow("Unsafe artifact path");
 	await expect(
 		collectArtifactManifest(root, [
+			{ path: "/etc/hosts", visibility: "PUBLIC", source: "agent" },
+		]),
+	).rejects.toThrow("Unsafe artifact path");
+	await expect(
+		collectArtifactManifest(root, [
+			{
+				path: "nested/../../safe.txt",
+				visibility: "PUBLIC",
+				source: "agent",
+			},
+		]),
+	).rejects.toThrow("Unsafe artifact path");
+	await expect(
+		collectArtifactManifest(root, [
 			{ path: "escape.txt", visibility: "PUBLIC", source: "agent" },
 		]),
 	).rejects.toThrow("regular non-symlink");
@@ -62,4 +77,18 @@ it("enforces aggregate size limits", async () => {
 			{ max_files: 1, max_file_bytes: 4, max_total_bytes: 4 },
 		),
 	).rejects.toThrow("Artifact size exceeds limit");
+});
+
+it("hashes the redacted public form of text artifacts", async () => {
+	const root = await fixture();
+	await writeFile(join(root, "agent.log"), "provider-secret-value");
+	const [entry] = await collectArtifactManifest(
+		root,
+		[{ path: "agent.log", visibility: "PUBLIC", source: "agent" }],
+		undefined,
+		(value) => value.replaceAll("provider-secret-value", "[REDACTED]"),
+	);
+	expect(entry?.sha256).toBe(
+		createHash("sha256").update("[REDACTED]").digest("hex"),
+	);
 });

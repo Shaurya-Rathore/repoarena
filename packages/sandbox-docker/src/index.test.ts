@@ -18,4 +18,6 @@ it("builds restrictive Docker arguments", () => {
 	expect(a).toContain("--cap-drop");
 	expect(a).not.toContain("--privileged");
 	expect(a.join(" ")).not.toContain("/var/run/docker.sock");
+	expect(a.join(" ")).not.toContain("secret");
+	expect(a).toContain("TOKEN");
 });

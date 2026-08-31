@@ -25,6 +25,7 @@ const attempt: PersistedAttempt = {
 		files_changed: 1,
 		lines_added: 1,
 		lines_removed: 1,
+		files: [{ status: "A", path: "<script>filename</script>.ts" }],
 	},
 	public_verification: [
 		{
@@ -109,6 +110,7 @@ it("escapes controlled HTML values", () => {
 	const html = toHtml(run);
 	expect(html).not.toContain("<script>alert");
 	expect(html).not.toContain("<img src=x");
+	expect(html).not.toContain("<script>filename</script>");
 	expect(html).toContain("&lt;script&gt;");
 });
 it("emits JUnit failure and error elements", () => {

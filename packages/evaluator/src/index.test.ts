@@ -75,3 +75,110 @@ it("keeps infrastructure failures distinct from agent failures", () => {
 		reason: "INFRASTRUCTURE_FAILED",
 	});
 });
+
+it.each([
+	{
+		name: "clean public and private behavior",
+		input: {
+			public_checks: [verification("p", "public", true)],
+			private_checks: [verification("h", "private", true)],
+			integrity: [],
+		},
+		outcome: "SOLVED",
+		reason: null,
+	},
+	{
+		name: "public failure",
+		input: {
+			public_checks: [verification("p", "public", false)],
+			private_checks: [verification("h", "private", true)],
+			integrity: [],
+		},
+		outcome: "UNSOLVED",
+		reason: "PUBLIC_VERIFICATION_FAILED",
+	},
+	{
+		name: "private failure",
+		input: {
+			public_checks: [verification("p", "public", true)],
+			private_checks: [verification("h", "private", false)],
+			integrity: [],
+		},
+		outcome: "UNSOLVED",
+		reason: "HIDDEN_VERIFICATION_FAILED",
+	},
+	{
+		name: "regression",
+		input: {
+			public_checks: [verification("p", "public", true)],
+			private_checks: [verification("h", "private", true)],
+			integrity: [],
+			regressions: [
+				{ code: "TEST_REGRESSION" as const, fatal: true, message: "failed" },
+			],
+		},
+		outcome: "UNSOLVED",
+		reason: "REGRESSION",
+	},
+	{
+		name: "integrity violation",
+		input: {
+			public_checks: [verification("p", "public", true)],
+			private_checks: [verification("h", "private", true)],
+			integrity: [
+				{ code: "TEST_DELETED" as const, fatal: true, message: "deleted" },
+			],
+		},
+		outcome: "UNSOLVED",
+		reason: "INTEGRITY_VIOLATION",
+	},
+	{
+		name: "agent crash",
+		input: {
+			public_checks: [],
+			private_checks: [],
+			integrity: [],
+			agent_failure: true,
+		},
+		outcome: "UNSOLVED",
+		reason: "AGENT_FAILED",
+	},
+	{
+		name: "agent timeout",
+		input: {
+			public_checks: [],
+			private_checks: [],
+			integrity: [],
+			agent_timeout: true,
+		},
+		outcome: "UNSOLVED",
+		reason: "AGENT_TIMEOUT",
+	},
+	{
+		name: "infrastructure failure",
+		input: {
+			public_checks: [],
+			private_checks: [],
+			integrity: [],
+			infrastructure_failure: true,
+		},
+		outcome: "INFRASTRUCTURE_FAILURE",
+		reason: "INFRASTRUCTURE_FAILED",
+	},
+	{
+		name: "cancellation",
+		input: {
+			public_checks: [],
+			private_checks: [],
+			integrity: [],
+			cancelled: true,
+		},
+		outcome: "UNSOLVED",
+		reason: "CANCELLED",
+	},
+])(
+	"applies the centralized decision matrix: $name",
+	({ input, outcome, reason }) => {
+		expect(evaluate(input)).toMatchObject({ outcome, reason });
+	},
+);

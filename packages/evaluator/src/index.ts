@@ -23,6 +23,7 @@ export type IntegrityFinding = {
 export type FailureCode =
 	| "AGENT_FAILED"
 	| "AGENT_TIMEOUT"
+	| "CANCELLED"
 	| "HIDDEN_VERIFICATION_FAILED"
 	| "INFRASTRUCTURE_FAILED"
 	| "INTEGRITY_VIOLATION"
@@ -53,6 +54,7 @@ export type EvaluationInput = {
 	infrastructure_failure?: boolean;
 	agent_failure?: boolean;
 	agent_timeout?: boolean;
+	cancelled?: boolean;
 };
 export type EvaluationResult = {
 	schema: "repoarena.evaluation/v1";
@@ -88,7 +90,8 @@ export function evaluate(input: EvaluationInput): EvaluationResult {
 				fatal ||
 				regression ||
 				input.agent_failure ||
-				input.agent_timeout
+				input.agent_timeout ||
+				input.cancelled
 			? "UNSOLVED"
 			: "SOLVED";
 	const reason = input.infrastructure_failure
@@ -101,11 +104,13 @@ export function evaluate(input: EvaluationInput): EvaluationResult {
 					? "REGRESSION"
 					: fatal
 						? "INTEGRITY_VIOLATION"
-						: input.agent_timeout
-							? "AGENT_TIMEOUT"
-							: input.agent_failure
-								? "AGENT_FAILED"
-								: null;
+						: input.cancelled
+							? "CANCELLED"
+							: input.agent_timeout
+								? "AGENT_TIMEOUT"
+								: input.agent_failure
+									? "AGENT_FAILED"
+									: null;
 	return {
 		schema: "repoarena.evaluation/v1",
 		outcome,

@@ -68,6 +68,7 @@ export async function collectArtifactManifest(
 	workspaceRoot: string,
 	requests: readonly ArtifactRequest[],
 	limits: ArtifactCollectionLimits = DEFAULT_ARTIFACT_LIMITS,
+	redactText?: (value: string) => string,
 ): Promise<readonly ArtifactManifestEntry[]> {
 	if (requests.length > limits.max_files) {
 		throw new RepoArenaError(
@@ -115,13 +116,21 @@ export async function collectArtifactManifest(
 		}
 		const digest = createHash("sha256");
 		const bytes = await (await import("node:fs/promises")).readFile(resolved);
-		digest.update(bytes);
+		const type = mediaType(basename(request.path));
+		const publicBytes =
+			redactText &&
+			(type.startsWith("text/") ||
+				type === "application/json" ||
+				type === "application/xml")
+				? Buffer.from(redactText(bytes.toString("utf8")))
+				: bytes;
+		digest.update(publicBytes);
 		total += info.size;
 		result.push({
 			logical_path: request.path,
 			sha256: digest.digest("hex"),
-			size_bytes: info.size,
-			media_type: mediaType(basename(request.path)),
+			size_bytes: publicBytes.byteLength,
+			media_type: type,
 			visibility: request.visibility,
 			source: request.source,
 		});

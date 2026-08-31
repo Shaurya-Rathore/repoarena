@@ -50,6 +50,11 @@ export type PersistedAttempt = Readonly<{
 		files_changed: number;
 		lines_added: number;
 		lines_removed: number;
+		files: readonly {
+			status: string;
+			path: string;
+			previous_path?: string;
+		}[];
 	};
 	public_verification: readonly {
 		id: string;

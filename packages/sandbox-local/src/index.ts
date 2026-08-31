@@ -7,6 +7,7 @@ export type SandboxCommand = {
 	cwd: string;
 	env: Record<string, string>;
 	timeout_seconds: number;
+	signal?: AbortSignal;
 };
 export type SandboxResult = {
 	argv: string[];
@@ -16,6 +17,7 @@ export type SandboxResult = {
 	exit_code: number | null;
 	signal: string | null;
 	timed_out: boolean;
+	cancelled?: boolean;
 	duration_ms: number;
 };
 export interface SandboxProvider {
@@ -49,10 +51,25 @@ export class LocalSandboxProvider implements SandboxProvider {
 				env: { PATH: process.env.PATH ?? "", ...command.env },
 				stdio: ["ignore", "pipe", "pipe"],
 				shell: false,
+				detached: process.platform !== "win32",
 			});
 			let stdout = "";
 			let stderr = "";
 			let timed = false;
+			let cancelled = command.signal?.aborted ?? false;
+			const killTree = (signal: NodeJS.Signals) => {
+				if (!child.pid) return;
+				try {
+					if (process.platform === "win32") child.kill(signal);
+					else process.kill(-child.pid, signal);
+				} catch {
+					// The process tree may already have exited.
+				}
+			};
+			const terminate = () => {
+				killTree("SIGTERM");
+				setTimeout(() => killTree("SIGKILL"), 250).unref();
+			};
 			const append = (old: string, value: string) => {
 				const next = old + value;
 				return next.length > this.maxOutput
@@ -67,11 +84,18 @@ export class LocalSandboxProvider implements SandboxProvider {
 			});
 			const timer = setTimeout(() => {
 				timed = true;
-				child.kill("SIGTERM");
-				setTimeout(() => child.kill("SIGKILL"), 1000).unref();
+				terminate();
 			}, command.timeout_seconds * 1000);
+			const onAbort = () => {
+				cancelled = true;
+				terminate();
+			};
+			command.signal?.addEventListener("abort", onAbort, { once: true });
+			if (cancelled) terminate();
 			child.on("error", (e) => {
 				clearTimeout(timer);
+				command.signal?.removeEventListener("abort", onAbort);
+				killTree("SIGKILL");
 				resolveResult({
 					argv: command.argv,
 					cwd,
@@ -80,11 +104,14 @@ export class LocalSandboxProvider implements SandboxProvider {
 					exit_code: null,
 					signal: null,
 					timed_out: timed,
+					cancelled,
 					duration_ms: Math.round(performance.now() - started),
 				});
 			});
 			child.on("close", (code, signal) => {
 				clearTimeout(timer);
+				command.signal?.removeEventListener("abort", onAbort);
+				killTree("SIGKILL");
 				resolveResult({
 					argv: command.argv,
 					cwd,
@@ -93,6 +120,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 					exit_code: code,
 					signal,
 					timed_out: timed,
+					cancelled,
 					duration_ms: Math.round(performance.now() - started),
 				});
 			});

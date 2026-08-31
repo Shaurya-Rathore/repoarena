@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve } from "node:path";
@@ -70,12 +70,28 @@ export type CommandEvidence = {
 	stdout: string;
 	stderr: string;
 	timed_out: boolean;
+	cancelled?: boolean;
 	usage?: Usage | null;
 };
+
+function terminateProcessTree(
+	child: ChildProcess,
+	signal: NodeJS.Signals,
+): void {
+	if (!child.pid) return;
+	try {
+		if (process.platform === "win32") child.kill(signal);
+		else process.kill(-child.pid, signal);
+	} catch {
+		// The process tree may already have exited. Termination is idempotent.
+	}
+}
+
 export async function runArgv(
 	argv: string[],
 	cwd: string,
 	timeoutSeconds: number,
+	signal?: AbortSignal,
 ): Promise<CommandEvidence> {
 	if (!argv.length)
 		throw new RepoArenaError("ATTEMPT_FAILED", "Command argv is required.");
@@ -84,25 +100,40 @@ export async function runArgv(
 		const child = spawn(argv[0] ?? "", argv.slice(1), {
 			cwd,
 			shell: false,
+			detached: process.platform !== "win32",
 			stdio: ["ignore", "pipe", "pipe"],
 			env: { PATH: process.env.PATH ?? "", REPOARENA_NETWORK_POLICY: "none" },
 		});
 		let stdout = "";
 		let stderr = "";
 		let timedOut = false;
+		let cancelled = signal?.aborted ?? false;
 		child.stdout.on("data", (chunk: Buffer) => {
 			stdout = limitOutput(stdout + chunk.toString());
 		});
 		child.stderr.on("data", (chunk: Buffer) => {
 			stderr = limitOutput(stderr + chunk.toString());
 		});
+		const forceTermination = () => terminateProcessTree(child, "SIGKILL");
+		const terminate = () => {
+			terminateProcessTree(child, "SIGTERM");
+			setTimeout(forceTermination, 250).unref();
+		};
 		const timer = setTimeout(() => {
 			timedOut = true;
-			child.kill("SIGTERM");
-			setTimeout(() => child.kill("SIGKILL"), 1000).unref();
+			terminate();
 		}, timeoutSeconds * 1000);
+		const onAbort = () => {
+			cancelled = true;
+			terminate();
+		};
+		signal?.addEventListener("abort", onAbort, { once: true });
+		if (cancelled) terminate();
 		child.on("close", (code) => {
 			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+			// A command may detach children before its main process exits.
+			forceTermination();
 			finish({
 				command: JSON.stringify(argv),
 				exit_code: code,
@@ -110,10 +141,13 @@ export async function runArgv(
 				stdout,
 				stderr,
 				timed_out: timedOut,
+				cancelled,
 			});
 		});
 		child.on("error", (error) => {
 			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+			forceTermination();
 			finish({
 				command: JSON.stringify(argv),
 				exit_code: null,
@@ -121,9 +155,76 @@ export async function runArgv(
 				stdout,
 				stderr: limitOutput(`${stderr}${error.message}`),
 				timed_out: timedOut,
+				cancelled,
 			});
 		});
 	});
+}
+
+export interface AttemptPhaseCoordinator {
+	enterAgent(): Promise<() => void>;
+	enterPrivate(): Promise<() => void>;
+}
+
+/**
+ * Allows concurrent agent phases but never lets an agent phase overlap any
+ * evaluator-private phase. This protects hidden assets across sibling attempts.
+ */
+export class LocalAttemptPhaseCoordinator implements AttemptPhaseCoordinator {
+	private activeAgents = 0;
+	privateActive = false;
+	private readonly waitingAgents: Array<(release: () => void) => void> = [];
+	private readonly waitingPrivate: Array<(release: () => void) => void> = [];
+
+	async enterAgent(): Promise<() => void> {
+		if (!this.privateActive && this.waitingPrivate.length === 0) {
+			this.activeAgents++;
+			return this.agentRelease();
+		}
+		return new Promise((resolve) => this.waitingAgents.push(resolve));
+	}
+
+	async enterPrivate(): Promise<() => void> {
+		if (!this.privateActive && this.activeAgents === 0) {
+			this.privateActive = true;
+			return this.privateRelease();
+		}
+		return new Promise((resolve) => this.waitingPrivate.push(resolve));
+	}
+
+	private agentRelease(): () => void {
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			this.activeAgents--;
+			this.drain();
+		};
+	}
+
+	private privateRelease(): () => void {
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			this.privateActive = false;
+			this.drain();
+		};
+	}
+
+	private drain(): void {
+		if (this.privateActive || this.activeAgents > 0) return;
+		const nextPrivate = this.waitingPrivate.shift();
+		if (nextPrivate) {
+			this.privateActive = true;
+			nextPrivate(this.privateRelease());
+			return;
+		}
+		for (const nextAgent of this.waitingAgents.splice(0)) {
+			this.activeAgents++;
+			nextAgent(this.agentRelease());
+		}
+	}
 }
 export type AttemptResult = {
 	id: string;
@@ -291,6 +392,7 @@ export type IsolatedAttemptResult = Readonly<{
 	artifacts: readonly ArtifactManifestEntry[];
 	agent_usage?: Readonly<Record<string, unknown>>;
 }>;
+export type { SandboxProvider } from "@repoarena/sandbox-local";
 
 /**
  * Connected local attempt lifecycle. Private data enters only a second copy
@@ -310,6 +412,9 @@ export async function runIsolatedAttempt(options: {
 	artifactRequests?: readonly ArtifactRequest[];
 	secrets?: readonly string[];
 	sandbox?: SandboxProvider;
+	sandboxFactory?: (workspace: string) => SandboxProvider;
+	signal?: AbortSignal;
+	phaseCoordinator?: AttemptPhaseCoordinator;
 }): Promise<IsolatedAttemptResult> {
 	if ((options.agentArgv ? 1 : 0) + (options.agentExecutor ? 1 : 0) !== 1)
 		throw new RepoArenaError(
@@ -324,7 +429,34 @@ export async function runIsolatedAttempt(options: {
 		if (current) transitionAttempt(current, state);
 		history.push({ state, at: new Date().toISOString() });
 	};
+	const cancelledResult = (): IsolatedAttemptResult => ({
+		schema: "repoarena.attempt/v1",
+		id: contentHash({
+			task: options.task.id,
+			agent: options.agentArgv ?? ["custom-executor"],
+			at: history[0]?.at,
+		}).slice(0, 24),
+		state_history: history,
+		patch: "",
+		changed_files: [],
+		public_verification: [],
+		private_verification: { passed: 0, failed: 0 },
+		evaluation: evaluate({
+			public_checks: [],
+			private_checks: [],
+			integrity: [],
+			cancelled: true,
+		}),
+		artifacts: [],
+	});
+	const stopIfCancelled = (): IsolatedAttemptResult | undefined => {
+		if (!options.signal?.aborted) return undefined;
+		move("CANCELLED");
+		return cancelledResult();
+	};
 	move("QUEUED");
+	const queuedCancellation = stopIfCancelled();
+	if (queuedCancellation) return queuedCancellation;
 	move("PREPARING");
 	try {
 		await cp(resolve(options.root), agentWorkspace, {
@@ -335,6 +467,9 @@ export async function runIsolatedAttempt(options: {
 				!relative(options.root, entry).startsWith(".repoarena/tasks") &&
 				!relative(options.root, entry).startsWith("node_modules"),
 		});
+		const preparingCancellation = stopIfCancelled();
+		if (preparingCancellation) return preparingCancellation;
+		const sandbox = options.sandbox ?? options.sandboxFactory?.(agentWorkspace);
 		move("SETUP");
 		move("AGENT_RUNNING");
 		const execute = async (
@@ -342,12 +477,13 @@ export async function runIsolatedAttempt(options: {
 			cwd: string,
 			timeout: number,
 		) => {
-			if (!options.sandbox) return runArgv([...argv], cwd, timeout);
-			const result = await options.sandbox.execute({
+			if (!sandbox) return runArgv([...argv], cwd, timeout, options.signal);
+			const result = await sandbox.execute({
 				argv: [...argv],
 				cwd,
 				env: { REPOARENA_NETWORK_POLICY: options.task.execution.network.mode },
 				timeout_seconds: timeout,
+				...(options.signal ? { signal: options.signal } : {}),
 			});
 			return {
 				command: JSON.stringify(argv),
@@ -356,15 +492,28 @@ export async function runIsolatedAttempt(options: {
 				stdout: result.stdout,
 				stderr: result.stderr,
 				timed_out: result.timed_out,
+				...(result.cancelled === undefined
+					? {}
+					: { cancelled: result.cancelled }),
 			};
 		};
-		const agent = options.agentExecutor
-			? await options.agentExecutor(agentWorkspace)
-			: await execute(
-					options.agentArgv ?? [],
-					agentWorkspace,
-					options.task.execution.timeout_seconds,
-				);
+		const releaseAgent = await options.phaseCoordinator?.enterAgent();
+		let agent: CommandEvidence;
+		try {
+			agent = options.agentExecutor
+				? await options.agentExecutor(agentWorkspace)
+				: await execute(
+						options.agentArgv ?? [],
+						agentWorkspace,
+						options.task.execution.timeout_seconds,
+					);
+		} finally {
+			releaseAgent?.();
+		}
+		if (agent.cancelled || options.signal?.aborted) {
+			move("CANCELLED");
+			return cancelledResult();
+		}
 		if (agent.exit_code !== 0 || agent.timed_out) {
 			move(agent.timed_out ? "TIMED_OUT" : "FAILED");
 			const result = evaluate({
@@ -391,6 +540,8 @@ export async function runIsolatedAttempt(options: {
 				...(agent.usage ? { agent_usage: agent.usage } : {}),
 			};
 		}
+		const agentCancellation = stopIfCancelled();
+		if (agentCancellation) return agentCancellation;
 		move("VERIFYING");
 		const publicEvidence: CommandEvidence[] = [];
 		for (const check of options.task.verification.required) {
@@ -406,6 +557,10 @@ export async function runIsolatedAttempt(options: {
 				stdout: redactor.redact(evidence.stdout),
 				stderr: redactor.redact(evidence.stderr),
 			});
+			if (evidence.cancelled || options.signal?.aborted) {
+				move("CANCELLED");
+				return cancelledResult();
+			}
 			if (evidence.exit_code !== 0 || evidence.timed_out) break;
 		}
 		move("COLLECTING");
@@ -415,11 +570,11 @@ export async function runIsolatedAttempt(options: {
 			...rawDiff,
 			patch: redactor.redact(rawDiff.patch),
 		};
-		const privateWorkspace = await mkdtemp(
-			join(tmpdir(), "repoarena-evaluator-"),
-		);
 		const privateEvidence: CommandEvidence[] = [];
+		const releasePrivate = await options.phaseCoordinator?.enterPrivate();
+		let privateWorkspace: string | null = null;
 		try {
+			privateWorkspace = await mkdtemp(join(tmpdir(), "repoarena-evaluator-"));
 			// Agent process is already closed; do not introduce private data before here.
 			await cp(agentWorkspace, privateWorkspace, { recursive: true });
 			move("VERIFYING_PRIVATE");
@@ -432,10 +587,17 @@ export async function runIsolatedAttempt(options: {
 						argv,
 						privateWorkspace,
 						options.task.execution.timeout_seconds,
+						options.signal,
 					),
 				);
 		} finally {
-			await rm(privateWorkspace, { recursive: true, force: true });
+			if (privateWorkspace)
+				await rm(privateWorkspace, { recursive: true, force: true });
+			releasePrivate?.();
+		}
+		if (options.signal?.aborted) {
+			move("CANCELLED");
+			return cancelledResult();
 		}
 		const integrity = analyzeIntegrity(
 			diff.changedFiles,
@@ -452,7 +614,12 @@ export async function runIsolatedAttempt(options: {
 			},
 		);
 		const artifacts = options.artifactRequests?.length
-			? await collectArtifactManifest(agentWorkspace, options.artifactRequests)
+			? await collectArtifactManifest(
+					agentWorkspace,
+					options.artifactRequests,
+					undefined,
+					(value) => redactor.redact(value),
+				)
 			: [];
 		const evaluator = evaluate({
 			public_checks: publicEvidence.map((item, index) =>
