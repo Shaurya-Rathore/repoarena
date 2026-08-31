@@ -330,6 +330,15 @@ export async function runBenchmark(
 						e.stdout.includes("[output truncated]") ||
 						e.stderr.includes("[output truncated]"),
 				})),
+				...(raw.agent_execution ? { agent_execution: {
+					command: raw.agent_execution.command,
+					exit_code: raw.agent_execution.exit_code,
+					duration_ms: raw.agent_execution.duration_ms,
+					stdout: raw.agent_execution.stdout,
+					stderr: raw.agent_execution.stderr,
+					timed_out: raw.agent_execution.timed_out,
+					...(raw.agent_execution.cancelled === undefined ? {} : { cancelled: raw.agent_execution.cancelled }),
+				} } : {}),
 				private_verification: raw.private_verification,
 				integrity: raw.evaluation.integrity,
 				regressions: raw.evaluation.regressions,

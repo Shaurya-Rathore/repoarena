@@ -17,6 +17,7 @@ const attempt: PersistedAttempt = {
 	state_history: [{ state: "QUEUED", at: "2026-01-01T00:00:00.000Z" }, { state: "COMPLETED", at: "2026-01-01T00:00:01.000Z" }], started_at: "2026-01-01T00:00:00.000Z", ended_at: "2026-01-01T00:00:01.000Z", duration_ms: 1000,
 	patch: { sha256: "p".repeat(64), unified_diff: "diff --git a/widget.ts b/widget.ts\n+fixed <script>alert(1)</script>\n", bytes: 60, files_changed: 1, lines_added: 1, lines_removed: 0, files: [{ status: "M", path: "widget.ts" }] },
 	public_verification: [{ id: "public", passed: true, duration_ms: 10, evidence_hash: "e".repeat(64), stdout: "ok", stderr: "", truncated: false }], private_verification: { passed: 1, failed: 0 }, integrity: [], regressions: [],
+	agent_execution: { command: "fake", exit_code: 0, duration_ms: 900, stdout: "agent log", stderr: "", timed_out: false },
 	evaluation: { schema: "repoarena.evaluation/v1", outcome: "SOLVED", reason: null, public: { passed: 1, failed: 0 }, hidden: { passed: 1, failed: 0 }, integrity: [], regressions: [], evidence_hash: "v".repeat(64) },
 	usage: { status: "AVAILABLE", input_tokens: 10, output_tokens: 2 }, cost: { status: "AVAILABLE", micros: 1200, currency: "USD", pricing_id: "v1", pricing_effective_from: "2026-01-01", usage_snapshot: { status: "AVAILABLE", input_tokens: 10, output_tokens: 2 } }, failure: null, retries: [],
 	artifacts: [{ path: "public.log", size: 2, sha256: "a".repeat(64), visibility: "PUBLIC", media_type: "text/plain" }, { path: "hidden.txt", size: 99, sha256: "h".repeat(64), visibility: "EVALUATOR_PRIVATE", media_type: "text/plain" }],
@@ -42,7 +43,7 @@ it("serves typed public repository, task, run, attempt, readiness and optimizer 
 	const repository = await get("/repository"); expect(repository.data.initialized).toBe(true);
 	const tasks = await get("/tasks?limit=10"); expect(tasks.data.total).toBe(1); expect(JSON.stringify(tasks)).not.toContain("REFERENCE-SOLUTION"); expect(tasks.data.items[0].source.reference_commit).toBeUndefined();
 	const runs = await get("/runs?limit=10"); expect(runs.data.items[0].statistics.total_cost_micros).toBe(1200); expect(JSON.stringify(runs)).not.toContain("hidden.txt");
-	const attemptResult = await get("/attempts/attempt-1"); expect(attemptResult.data.patch.unified_diff).toContain("fixed");
+	const attemptResult = await get("/attempts/attempt-1"); expect(attemptResult.data.patch.unified_diff).toContain("fixed"); expect(attemptResult.data.agent_execution.stdout).toBe("agent log");
 	const denied = await fetch(`${address.url}/api/v1/readiness`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); expect(denied.status).toBe(403);
 	const mutationHeaders = { "content-type": "application/json", origin: address.url, "x-repoarena-csrf": local.csrfToken };
 	const readiness = await fetch(`${address.url}/api/v1/readiness`, { method: "POST", headers: mutationHeaders, body: "{}" }); expect(readiness.status).toBe(201);

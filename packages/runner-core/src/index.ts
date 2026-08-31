@@ -390,6 +390,7 @@ export type IsolatedAttemptResult = Readonly<{
 	private_verification: { passed: number; failed: number };
 	evaluation: PublicEvaluationResult;
 	artifacts: readonly ArtifactManifestEntry[];
+	agent_execution?: CommandEvidence;
 	agent_usage?: Readonly<Record<string, unknown>>;
 }>;
 export type { SandboxProvider } from "@repoarena/sandbox-local";
@@ -510,6 +511,12 @@ export async function runIsolatedAttempt(options: {
 		} finally {
 			releaseAgent?.();
 		}
+		const safeAgent = {
+			...agent,
+			command: redactor.redact(agent.command),
+			stdout: redactor.redact(agent.stdout),
+			stderr: redactor.redact(agent.stderr),
+		};
 		if (agent.cancelled || options.signal?.aborted) {
 			move("CANCELLED");
 			return cancelledResult();
@@ -537,6 +544,7 @@ export async function runIsolatedAttempt(options: {
 				private_verification: { passed: 0, failed: 0 },
 				evaluation: result,
 				artifacts: [],
+				agent_execution: safeAgent,
 				...(agent.usage ? { agent_usage: agent.usage } : {}),
 			};
 		}
@@ -657,6 +665,7 @@ export async function runIsolatedAttempt(options: {
 			private_verification: evaluator.hidden,
 			evaluation: evaluator,
 			artifacts,
+			agent_execution: safeAgent,
 			...(agent.usage ? { agent_usage: agent.usage } : {}),
 		};
 	} finally {

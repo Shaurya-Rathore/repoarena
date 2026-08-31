@@ -320,7 +320,7 @@ it("collects allowlisted artifacts and redacts secrets before persistence", asyn
 		agentArgv: [
 			process.execPath,
 			"-e",
-			`require('fs').writeFileSync('log.txt', ${JSON.stringify(secret)})`,
+			`require('fs').writeFileSync('log.txt', ${JSON.stringify(secret)});process.stdout.write(${JSON.stringify(secret)})`,
 		],
 		privateData: {
 			task_id: task.id,
@@ -332,5 +332,6 @@ it("collects allowlisted artifacts and redacts secrets before persistence", asyn
 	});
 	expect(result.artifacts).toHaveLength(1);
 	expect(result.public_verification[0]?.stdout).toBe("[REDACTED]");
+	expect(result.agent_execution?.stdout).toBe("[REDACTED]");
 	expect(JSON.stringify(result)).not.toContain(secret);
 });

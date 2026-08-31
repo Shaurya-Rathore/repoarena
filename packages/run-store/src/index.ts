@@ -66,6 +66,15 @@ export type PersistedAttempt = Readonly<{
 		stderr: string;
 		truncated: boolean;
 	}[];
+	agent_execution?: {
+		command: string;
+		exit_code: number | null;
+		duration_ms: number;
+		stdout: string;
+		stderr: string;
+		timed_out: boolean;
+		cancelled?: boolean;
+	};
 	private_verification: { passed: number; failed: number };
 	integrity: readonly { code: string; fatal: boolean; message: string }[];
 	regressions: readonly { code: string; fatal: boolean; message: string }[];
