@@ -125,6 +125,12 @@ importers:
       '@repoarena/runner-core':
         specifier: workspace:*
         version: link:../runner-core
+      '@repoarena/sandbox-docker':
+        specifier: workspace:*
+        version: link:../sandbox-docker
+      '@repoarena/sandbox-local':
+        specifier: workspace:*
+        version: link:../sandbox-local
       '@repoarena/task-discovery':
         specifier: workspace:*
         version: link:../task-discovery

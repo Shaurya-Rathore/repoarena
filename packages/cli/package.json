@@ -27,6 +27,8 @@
 		"@repoarena/reporter": "workspace:*",
 		"@repoarena/run-store": "workspace:*",
 		"@repoarena/runner-core": "workspace:*",
+		"@repoarena/sandbox-docker": "workspace:*",
+		"@repoarena/sandbox-local": "workspace:*",
 		"@repoarena/task-spec": "workspace:*",
 		"commander": "12.1.0",
 		"yaml": "2.6.1"

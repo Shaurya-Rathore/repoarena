@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	realpath,
+	stat,
+	writeFile,
+} from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { Command } from "commander";
 import { ClaudeCodeAdapter } from "@repoarena/adapter-claude-code";
 import { CodexAdapter } from "@repoarena/adapter-codex";
@@ -15,6 +22,8 @@ import { GitRepository } from "@repoarena/git";
 import { assessRepository } from "@repoarena/readiness";
 import { toHtml, toJson, toJunit, toTerminal } from "@repoarena/reporter";
 import { loadRun, writeRunAtomic } from "@repoarena/run-store";
+import { DockerSandboxProvider } from "@repoarena/sandbox-docker";
+import { LocalSandboxProvider } from "@repoarena/sandbox-local";
 import type { EvaluatorPrivateTaskData } from "@repoarena/task-spec";
 import { taskSchema } from "@repoarena/task-spec";
 import { discover } from "@repoarena/task-discovery";
@@ -41,6 +50,55 @@ const collect = (value: string, previous: string[]): string[] => [
 	...previous,
 	value,
 ];
+const safeOutputPath = async (value: string): Promise<string> => {
+	const requested = resolve(root, value);
+	const canonicalRoot = await realpath(root);
+	let existing = requested;
+	for (;;) {
+		try {
+			const canonical = await realpath(existing);
+			const path = resolve(canonical, relative(existing, requested));
+			const part = relative(canonicalRoot, path);
+			if (!isAbsolute(part) && !part.split(/[\\/]/).includes("..")) return path;
+			break;
+		} catch {
+			const parent = dirname(existing);
+			if (parent === existing) break;
+			existing = parent;
+		}
+	}
+	throw new RepoArenaError(
+		"CONFIG_INVALID",
+		"Output path must remain inside the repository.",
+	);
+};
+const testBenchmarkAgent = (name: string): BenchmarkAgent | null => {
+	if (
+		process.env.NODE_ENV !== "test" ||
+		process.env.REPOARENA_TEST_ADAPTERS !== "1"
+	)
+		return null;
+	if (!new Set(["fake-noop", "fake-perfect"]).has(name)) return null;
+	return {
+		id: name,
+		version: "test",
+		model: "deterministic",
+		provider: "test",
+		config_hash: JSON.stringify({ name }),
+		execute: async (workspace) => {
+			if (name === "fake-perfect")
+				await writeFile(join(workspace, "subject.txt"), "fixed\n");
+			return {
+				command: JSON.stringify([name]),
+				exit_code: 0,
+				duration_ms: 0,
+				stdout: "",
+				stderr: "",
+				timed_out: false,
+			};
+		},
+	};
+};
 async function paths(): Promise<string[]> {
 	try {
 		return (await readdir(taskDir()))
@@ -400,6 +458,7 @@ program
 	)
 	.option("--runs-per-task <count>", "clean repetitions per task", "1")
 	.option("--parallel <count>", "maximum concurrent attempts", "1")
+	.option("--sandbox <backend>", "local or docker sandbox", "local")
 	.option("--model <model>", "model requested from each adapter")
 	.option(
 		"--report <formats>",
@@ -412,6 +471,11 @@ program
 		".repoarena/reports",
 	)
 	.option("--json")
+	.option("--ci", "exit nonzero when any benchmark attempt is unsolved")
+	.option(
+		"--fail-on-unsolved",
+		"exit nonzero when any benchmark attempt is unsolved",
+	)
 	.action(async (options) => {
 		await ensureGit();
 		await loadConfig(root);
@@ -468,6 +532,11 @@ program
 				argv: [options.agentCommand, ...(options.agentArg as string[])],
 			});
 		for (const name of requested) {
+			const testAgent = testBenchmarkAgent(name);
+			if (testAgent) {
+				plans.push(testAgent);
+				continue;
+			}
 			const adapter = adapters[name];
 			if (!adapter)
 				throw new RepoArenaError("CONFIG_INVALID", `Unknown agent ${name}.`);
@@ -506,7 +575,13 @@ program
 				"CONFIG_INVALID",
 				"Select --agent or --agent-command.",
 			);
+		const directory = await safeOutputPath(options.output);
 		const identity = await new GitRepository(root).identity();
+		if (!new Set(["local", "docker"]).has(options.sandbox))
+			throw new RepoArenaError(
+				"CONFIG_INVALID",
+				"sandbox must be local or docker",
+			);
 		const statePath = join(root, ".repoarena", "state", "runs", "latest.json");
 		const run = await runBenchmark({
 			root,
@@ -518,13 +593,17 @@ program
 			pricing: { version: "unpriced", prices: [] },
 			state_path: statePath,
 			runner_version: "0.1.0",
+			sandbox_id: options.sandbox,
+			sandbox_factory: (workspace) =>
+				options.sandbox === "docker"
+					? new DockerSandboxProvider(workspace)
+					: new LocalSandboxProvider(workspace),
 		});
 		await writeRunAtomic(
 			join(root, ".repoarena", "state", "runs", `${run.id}.json`),
 			run,
 		);
 		const formats = new Set(String(options.report).split(","));
-		const directory = resolve(root, options.output);
 		await mkdir(directory, { recursive: true });
 		if (formats.has("json"))
 			await writeFile(join(directory, `${run.id}.json`), toJson(run));
@@ -534,7 +613,10 @@ program
 			await writeFile(join(directory, `${run.id}.xml`), toJunit(run));
 		if (formats.has("terminal") && !options.json) output(toTerminal(run));
 		else output(run, true);
-		if (run.statistics.solved_count !== run.statistics.attempt_count)
+		if (
+			(options.ci || options.failOnUnsolved) &&
+			run.statistics.solved_count !== run.statistics.attempt_count
+		)
 			process.exitCode = 1;
 	});
 program
@@ -555,7 +637,9 @@ program
 		if (!renderer)
 			throw new RepoArenaError("CONFIG_INVALID", "format must be json or html");
 		const data = renderer(result);
-		const path = resolve(root, options.output ?? `${runId}.${options.format}`);
+		const path = await safeOutputPath(
+			options.output ?? `${runId}.${options.format}`,
+		);
 		await writeFile(path, data);
 		output({ exported: path });
 	});
