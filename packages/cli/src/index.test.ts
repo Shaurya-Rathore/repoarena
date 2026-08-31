@@ -128,26 +128,60 @@ it("runs the connected engine and writes every public report", async () => {
 			"reference-solution-sentinel",
 		);
 	}
-	const doctor = await execute(process.execPath, [cli, "doctor", "--json"], { cwd: root });
+	const doctor = await execute(process.execPath, [cli, "doctor", "--json"], {
+		cwd: root,
+	});
 	expect(JSON.parse(doctor.stdout).schema).toBe("repoarena.readiness/v1");
-	const humanDoctor = await execute(process.execPath, [cli, "doctor"], { cwd: root });
+	const humanDoctor = await execute(process.execPath, [cli, "doctor"], {
+		cwd: root,
+	});
 	expect(humanDoctor.stdout).toContain("Repository readiness:");
 	expect(humanDoctor.stdout).toContain("Recommendation:");
-	expect(await readFile(join(root, ".repoarena", "state", "readiness", "latest.json"), "utf8")).toContain("repoarena.readiness/v1");
-	await writeFile(join(root, "search.yaml"), [
-		"schema: repoarena.optimizer-search/v1",
-		"dimensions:",
-		"  - agent: fake-perfect",
-		"    models: [deterministic]",
-		"tasks: [e2e]",
-		"budget:",
-		"  max_trials: 1",
-	].join("\n"));
-	const optimization = await execute(process.execPath, [cli, "optimize", "--search-space", "search.yaml", "--profile", "profile.yaml", "--json"], { cwd: root, env: { PATH: process.env.PATH ?? "", NODE_ENV: "test", REPOARENA_TEST_ADAPTERS: "1" }, maxBuffer: 2_000_000 });
+	expect(
+		await readFile(
+			join(root, ".repoarena", "state", "readiness", "latest.json"),
+			"utf8",
+		),
+	).toContain("repoarena.readiness/v1");
+	await writeFile(
+		join(root, "search.yaml"),
+		[
+			"schema: repoarena.optimizer-search/v1",
+			"dimensions:",
+			"  - agent: fake-perfect",
+			"    models: [deterministic]",
+			"tasks: [e2e]",
+			"budget:",
+			"  max_trials: 1",
+		].join("\n"),
+	);
+	const optimization = await execute(
+		process.execPath,
+		[
+			cli,
+			"optimize",
+			"--search-space",
+			"search.yaml",
+			"--profile",
+			"profile.yaml",
+			"--json",
+		],
+		{
+			cwd: root,
+			env: {
+				PATH: process.env.PATH ?? "",
+				NODE_ENV: "test",
+				REPOARENA_TEST_ADAPTERS: "1",
+			},
+			maxBuffer: 2_000_000,
+		},
+	);
 	const optimizationRun = JSON.parse(optimization.stdout);
 	expect(optimizationRun.recommendation.candidate.agent).toBe("fake-perfect");
 	expect(optimizationRun.recommendation.metrics.success_rate).toBe(1);
-	expect(await readFile(join(root, "profile.yaml"), "utf8")).toContain("repoarena.profile/v1");
+	expect(await readFile(join(root, "profile.yaml"), "utf8")).toContain(
+		"repoarena.profile/v1",
+	);
 });
 it("inspects the production adapter registry without credentials", async () => {
 	const cli = new URL("../dist/index.js", import.meta.url).pathname;

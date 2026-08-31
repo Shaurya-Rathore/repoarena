@@ -14,13 +14,27 @@ import { CodexAdapter } from "@repoarena/adapter-codex";
 import { GeminiCliAdapter } from "@repoarena/adapter-gemini-cli";
 import { OpenCodeAdapter } from "@repoarena/adapter-opencode";
 import type { AgentAdapter } from "@repoarena/adapter-sdk";
-import { runBenchmark, type BenchmarkAgent, type BenchmarkTask } from "@repoarena/benchmark-engine";
+import {
+	runBenchmark,
+	type BenchmarkAgent,
+	type BenchmarkTask,
+} from "@repoarena/benchmark-engine";
 import { loadConfig } from "@repoarena/config";
 import { contentHash, RepoArenaError } from "@repoarena/core";
 import { GitRepository } from "@repoarena/git";
 import { createLocalProductServer } from "@repoarena/local-product";
-import { exportRecommendedProfile, optimize, searchSpaceSchema, writeOptimizationRunAtomic, type CandidateConfiguration, type TrialMetrics } from "@repoarena/optimizer";
-import { assessRepository, writeReadinessReportAtomic } from "@repoarena/readiness";
+import {
+	exportRecommendedProfile,
+	optimize,
+	searchSpaceSchema,
+	writeOptimizationRunAtomic,
+	type CandidateConfiguration,
+	type TrialMetrics,
+} from "@repoarena/optimizer";
+import {
+	assessRepository,
+	writeReadinessReportAtomic,
+} from "@repoarena/readiness";
 import { toHtml, toJson, toJunit, toTerminal } from "@repoarena/reporter";
 import { loadRun, writeRunAtomic } from "@repoarena/run-store";
 import { DockerSandboxProvider } from "@repoarena/sandbox-docker";
@@ -125,37 +139,141 @@ async function ensureGit(): Promise<void> {
 		);
 	}
 }
-async function benchmarkTasks(ids?: readonly string[]): Promise<BenchmarkTask[]> {
+async function benchmarkTasks(
+	ids?: readonly string[],
+): Promise<BenchmarkTask[]> {
 	const selected = ids ? new Set(ids) : undefined;
 	const plans: BenchmarkTask[] = [];
 	for (const path of await paths()) {
 		const task = await taskFromPath(path);
 		if (selected && !selected.has(task.id)) continue;
-		let privateData: EvaluatorPrivateTaskData = { task_id: task.id, reference_commit: null, reference_patch: null, hidden_hook_source: null, private_notes: [] };
-		try { privateData = JSON.parse(await readFile(join(root, ".repoarena", "state", "private", `${task.id}.json`), "utf8")) as EvaluatorPrivateTaskData; } catch { /* public tasks may omit a private evaluator */ }
-		plans.push({ task, private_data: privateData, ...(privateData.hidden_hook_source ? { private_verifier: async (workspace: string) => { const hook = join(workspace, ".repoarena-private-hook.mjs"); await writeFile(hook, privateData.hidden_hook_source ?? "", { mode: 0o600 }); return [[process.execPath, hook]]; } } : {}) });
+		let privateData: EvaluatorPrivateTaskData = {
+			task_id: task.id,
+			reference_commit: null,
+			reference_patch: null,
+			hidden_hook_source: null,
+			private_notes: [],
+		};
+		try {
+			privateData = JSON.parse(
+				await readFile(
+					join(root, ".repoarena", "state", "private", `${task.id}.json`),
+					"utf8",
+				),
+			) as EvaluatorPrivateTaskData;
+		} catch {
+			/* public tasks may omit a private evaluator */
+		}
+		plans.push({
+			task,
+			private_data: privateData,
+			...(privateData.hidden_hook_source
+				? {
+						private_verifier: async (workspace: string) => {
+							const hook = join(workspace, ".repoarena-private-hook.mjs");
+							await writeFile(hook, privateData.hidden_hook_source ?? "", {
+								mode: 0o600,
+							});
+							return [[process.execPath, hook]];
+						},
+					}
+				: {}),
+		});
 	}
-	if (selected && plans.length !== selected.size) throw new RepoArenaError("TASK_INVALID", "One or more selected optimizer tasks were not found.");
+	if (selected && plans.length !== selected.size)
+		throw new RepoArenaError(
+			"TASK_INVALID",
+			"One or more selected optimizer tasks were not found.",
+		);
 	return plans;
 }
-async function benchmarkAgent(name: string, model?: string, reasoning = "default"): Promise<BenchmarkAgent> {
+async function benchmarkAgent(
+	name: string,
+	model?: string,
+	reasoning = "default",
+): Promise<BenchmarkAgent> {
 	const test = testBenchmarkAgent(name);
-	if (test) return { ...test, model: model ?? test.model, config_hash: contentHash({ name, model: model ?? test.model, reasoning }) };
+	if (test)
+		return {
+			...test,
+			model: model ?? test.model,
+			config_hash: contentHash({ name, model: model ?? test.model, reasoning }),
+		};
 	const adapter = adapters[name];
-	if (!adapter) throw new RepoArenaError("CONFIG_INVALID", `Unknown agent ${name}.`);
+	if (!adapter)
+		throw new RepoArenaError("CONFIG_INVALID", `Unknown agent ${name}.`);
 	const detection = await adapter.detect();
-	if (!detection.available) throw new RepoArenaError("ATTEMPT_FAILED", `${name} is unavailable.`);
-	return { id: name, version: detection.version, model: model ?? null, provider: name, config_hash: contentHash({ name, model: model ?? null, reasoning }), execute: async (workspace, task) => {
-		const started = performance.now();
-		const result = await adapter.run({ cwd: workspace, prompt: task.prompt, ...(model ? { model } : {}), timeout_seconds: task.execution.timeout_seconds, env: {} });
-		return { command: JSON.stringify([name]), exit_code: result.exit_code, duration_ms: Math.round(performance.now() - started), stdout: result.stdout, stderr: result.stderr, timed_out: result.timed_out, ...(result.usage ? { usage: result.usage } : {}) };
-	} };
+	if (!detection.available)
+		throw new RepoArenaError("ATTEMPT_FAILED", `${name} is unavailable.`);
+	return {
+		id: name,
+		version: detection.version,
+		model: model ?? null,
+		provider: name,
+		config_hash: contentHash({ name, model: model ?? null, reasoning }),
+		execute: async (workspace, task) => {
+			const started = performance.now();
+			const result = await adapter.run({
+				cwd: workspace,
+				prompt: task.prompt,
+				...(model ? { model } : {}),
+				timeout_seconds: task.execution.timeout_seconds,
+				env: {},
+			});
+			return {
+				command: JSON.stringify([name]),
+				exit_code: result.exit_code,
+				duration_ms: Math.round(performance.now() - started),
+				stdout: result.stdout,
+				stderr: result.stderr,
+				timed_out: result.timed_out,
+				...(result.usage ? { usage: result.usage } : {}),
+			};
+		},
+	};
 }
-async function executeOptimizationTrial(candidate: CandidateConfiguration, taskIds: readonly string[]): Promise<TrialMetrics> {
+async function executeOptimizationTrial(
+	candidate: CandidateConfiguration,
+	taskIds: readonly string[],
+): Promise<TrialMetrics> {
 	const identity = await new GitRepository(root).identity();
-	const run = await runBenchmark({ root, repository: { commit: identity.head, remote: identity.remote }, tasks: await benchmarkTasks(taskIds), agents: [await benchmarkAgent(candidate.agent, candidate.model, candidate.reasoning)], runs_per_task: 1, parallelism: 1, pricing: { version: "unpriced", prices: [] }, state_path: join(root, ".repoarena", "state", "runs", `optimization-${candidate.id}.json`), runner_version: "0.1.0", sandbox_id: "local", sandbox_factory: (workspace) => new LocalSandboxProvider(workspace) });
-	await writeRunAtomic(join(root, ".repoarena", "state", "runs", `${run.id}.json`), run);
-	return { attempt_count: run.statistics.attempt_count, solved_count: run.statistics.solved_count, success_rate: run.statistics.success_rate ?? 0, total_cost_micros: run.statistics.total_cost_micros, median_duration_ms: run.statistics.median_duration_ms, reliability: run.statistics.success_rate };
+	const run = await runBenchmark({
+		root,
+		repository: { commit: identity.head, remote: identity.remote },
+		tasks: await benchmarkTasks(taskIds),
+		agents: [
+			await benchmarkAgent(
+				candidate.agent,
+				candidate.model,
+				candidate.reasoning,
+			),
+		],
+		runs_per_task: 1,
+		parallelism: 1,
+		pricing: { version: "unpriced", prices: [] },
+		state_path: join(
+			root,
+			".repoarena",
+			"state",
+			"runs",
+			`optimization-${candidate.id}.json`,
+		),
+		runner_version: "0.1.0",
+		sandbox_id: "local",
+		sandbox_factory: (workspace) => new LocalSandboxProvider(workspace),
+	});
+	await writeRunAtomic(
+		join(root, ".repoarena", "state", "runs", `${run.id}.json`),
+		run,
+	);
+	return {
+		attempt_count: run.statistics.attempt_count,
+		solved_count: run.statistics.solved_count,
+		success_rate: run.statistics.success_rate ?? 0,
+		total_cost_micros: run.statistics.total_cost_micros,
+		median_duration_ms: run.statistics.median_duration_ms,
+		reliability: run.statistics.success_rate,
+	};
 }
 
 const program = new Command()
@@ -201,12 +319,30 @@ program
 	.action(async (options) => {
 		const report = await assessRepository(root);
 		const directory = join(root, ".repoarena", "state", "readiness");
-		await writeReadinessReportAtomic(join(directory, `${report.id}.json`), report);
+		await writeReadinessReportAtomic(
+			join(directory, `${report.id}.json`),
+			report,
+		);
 		await writeReadinessReportAtomic(join(directory, "latest.json"), report);
 		if (options.json) return output(report, true);
-		const dimensions = report.dimensions.map((item) => `  ${item.id.padEnd(16)} ${String(item.score).padStart(2)}/${item.max}`).join("\n");
-		const findings = report.findings.length === 0 ? "  No deterministic findings." : report.findings.map((item) => `  [${item.severity}] ${item.title}\n    ${item.evidence}\n    Recommendation: ${item.recommendation}${item.path ? `\n    Path: ${item.path}` : ""}`).join("\n");
-		output(`Repository readiness: ${report.score}/100 (${report.status})\n\nCategories\n${dimensions}\n\nFindings\n${findings}`);
+		const dimensions = report.dimensions
+			.map(
+				(item) =>
+					`  ${item.id.padEnd(16)} ${String(item.score).padStart(2)}/${item.max}`,
+			)
+			.join("\n");
+		const findings =
+			report.findings.length === 0
+				? "  No deterministic findings."
+				: report.findings
+						.map(
+							(item) =>
+								`  [${item.severity}] ${item.title}\n    ${item.evidence}\n    Recommendation: ${item.recommendation}${item.path ? `\n    Path: ${item.path}` : ""}`,
+						)
+						.join("\n");
+		output(
+			`Repository readiness: ${report.score}/100 (${report.status})\n\nCategories\n${dimensions}\n\nFindings\n${findings}`,
+		);
 	});
 const tasks = program.command("tasks").description("Manage benchmark tasks");
 tasks
@@ -685,7 +821,10 @@ program
 	});
 program
 	.command("optimize")
-	.requiredOption("--search-space <path>", "optimizer search-space YAML or JSON")
+	.requiredOption(
+		"--search-space <path>",
+		"optimizer search-space YAML or JSON",
+	)
 	.option("--output <path>", "optimization result JSON")
 	.option("--profile <path>", "recommended profile output")
 	.option("--json")
@@ -693,13 +832,34 @@ program
 		await ensureGit();
 		const path = await safeOutputPath(options.searchSpace);
 		const raw = await readFile(path, "utf8");
-		const space = searchSpaceSchema.parse(path.endsWith(".json") ? JSON.parse(raw) : parse(raw));
+		const space = searchSpaceSchema.parse(
+			path.endsWith(".json") ? JSON.parse(raw) : parse(raw),
+		);
 		const identity = await new GitRepository(root).identity();
-		const run = await optimize({ searchSpace: space, repositoryCommit: identity.head, runnerVersion: "0.1.0", executor: executeOptimizationTrial });
-		const statePath = join(root, ".repoarena", "state", "optimizations", `${run.id}.json`);
+		const run = await optimize({
+			searchSpace: space,
+			repositoryCommit: identity.head,
+			runnerVersion: "0.1.0",
+			executor: executeOptimizationTrial,
+		});
+		const statePath = join(
+			root,
+			".repoarena",
+			"state",
+			"optimizations",
+			`${run.id}.json`,
+		);
 		await writeOptimizationRunAtomic(statePath, run);
-		if (options.output) await writeOptimizationRunAtomic(await safeOutputPath(options.output), run);
-		if (options.profile) await writeFile(await safeOutputPath(options.profile), exportRecommendedProfile(run));
+		if (options.output)
+			await writeOptimizationRunAtomic(
+				await safeOutputPath(options.output),
+				run,
+			);
+		if (options.profile)
+			await writeFile(
+				await safeOutputPath(options.profile),
+				exportRecommendedProfile(run),
+			);
 		output(run, options.json);
 	});
 program
@@ -707,8 +867,18 @@ program
 	.option("--port <port>", "port", "4177")
 	.option("--host <host>", "localhost binding", "127.0.0.1")
 	.action(async (options) => {
-		if (!new Set(["127.0.0.1", "localhost"]).has(options.host)) throw new RepoArenaError("CONFIG_INVALID", "Local UI binds only to 127.0.0.1 or localhost.");
-		const local = createLocalProductServer({ root, host: options.host, port: Number(options.port), version: "0.1.0", optimizerExecutor: executeOptimizationTrial });
+		if (!new Set(["127.0.0.1", "localhost"]).has(options.host))
+			throw new RepoArenaError(
+				"CONFIG_INVALID",
+				"Local UI binds only to 127.0.0.1 or localhost.",
+			);
+		const local = createLocalProductServer({
+			root,
+			host: options.host,
+			port: Number(options.port),
+			version: "0.1.0",
+			optimizerExecutor: executeOptimizationTrial,
+		});
 		const address = await local.start();
 		output(`RepoArena UI listening at ${address.url}`);
 		const close = () => void local.close().finally(() => process.exit(0));

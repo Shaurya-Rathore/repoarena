@@ -39,14 +39,26 @@ export async function loadConfig(root: string): Promise<RepoArenaConfig> {
 	}
 }
 
-export async function writeConfigAtomic(root: string, value: unknown): Promise<RepoArenaConfig> {
+export async function writeConfigAtomic(
+	root: string,
+	value: unknown,
+): Promise<RepoArenaConfig> {
 	const config = configSchema.parse(value);
 	const directory = join(root, ".repoarena");
 	const target = join(directory, "config.yaml");
 	const temporary = join(directory, `.config-${crypto.randomUUID()}.tmp`);
 	await mkdir(directory, { recursive: true });
 	const file = await open(temporary, "wx", 0o600);
-	try { await file.writeFile(stringify(config, { sortMapEntries: true }), "utf8"); await file.sync(); } finally { await file.close(); }
-	try { await rename(temporary, target); } finally { await rm(temporary, { force: true }); }
+	try {
+		await file.writeFile(stringify(config, { sortMapEntries: true }), "utf8");
+		await file.sync();
+	} finally {
+		await file.close();
+	}
+	try {
+		await rename(temporary, target);
+	} finally {
+		await rm(temporary, { force: true });
+	}
 	return config;
 }
