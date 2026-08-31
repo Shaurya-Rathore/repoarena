@@ -188,6 +188,36 @@ importers:
         specifier: workspace:*
         version: link:../task-spec
 
+  packages/local-product:
+    dependencies:
+      '@repoarena/config':
+        specifier: workspace:*
+        version: link:../config
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+      '@repoarena/git':
+        specifier: workspace:*
+        version: link:../git
+      '@repoarena/optimizer':
+        specifier: workspace:*
+        version: link:../optimizer
+      '@repoarena/readiness':
+        specifier: workspace:*
+        version: link:../readiness
+      '@repoarena/run-store':
+        specifier: workspace:*
+        version: link:../run-store
+      '@repoarena/task-spec':
+        specifier: workspace:*
+        version: link:../task-spec
+      yaml:
+        specifier: 2.6.1
+        version: 2.6.1
+      zod:
+        specifier: 3.24.1
+        version: 3.24.1
+
   packages/optimizer:
     dependencies:
       '@repoarena/core':

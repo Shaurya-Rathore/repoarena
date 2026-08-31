@@ -46,6 +46,7 @@ export type PersistedAttempt = Readonly<{
 	duration_ms: number;
 	patch: {
 		sha256: string;
+		unified_diff?: string;
 		bytes: number;
 		files_changed: number;
 		lines_added: number;

@@ -308,6 +308,7 @@ export async function runBenchmark(
 				duration_ms: Math.max(0, ended.getTime() - started.getTime()),
 				patch: {
 					sha256: contentHash(raw.patch),
+					unified_diff: raw.patch,
 					bytes: Buffer.byteLength(raw.patch),
 					files_changed: raw.changed_files.length,
 					lines_added: lines.added,

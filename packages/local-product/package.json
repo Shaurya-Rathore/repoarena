@@ -1,0 +1,23 @@
+{
+	"name": "@repoarena/local-product",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"exports": "./dist/index.js",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test:unit": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@repoarena/config": "workspace:*",
+		"@repoarena/core": "workspace:*",
+		"@repoarena/git": "workspace:*",
+		"@repoarena/optimizer": "workspace:*",
+		"@repoarena/readiness": "workspace:*",
+		"@repoarena/run-store": "workspace:*",
+		"@repoarena/task-spec": "workspace:*",
+		"yaml": "2.6.1",
+		"zod": "3.24.1"
+	}
+}
