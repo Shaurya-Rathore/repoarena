@@ -13,3 +13,9 @@ CLI adapters are available only when both `NODE_ENV=test` and
 `REPOARENA_TEST_ADAPTERS=1`; production adapter names are never replaced. Use
 synchronized barriers for concurrency assertions and forbidden-sentinel scans
 across persisted runs and every public reporter.
+
+Local-product tests generate repositories and persisted domain records rather
+than shipping demo data. The built-product test must spawn the compiled CLI as
+a child process on port `0`, verify loopback startup/health/API/onboarding, and
+terminate it cleanly. Readiness and optimizer CLI/UI consistency is checked by
+persisting one canonical record and consuming that record through the API.
