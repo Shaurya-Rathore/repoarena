@@ -88,15 +88,21 @@ export const enumerateCandidates = (input: unknown): CandidateConfiguration[] =>
 	return [...new Map(candidates.map((item) => [item.id, item])).values()].sort((a, b) => a.id.localeCompare(b.id));
 };
 const cacheKey = (repositoryCommit: string, candidate: CandidateConfiguration, tasks: readonly string[], runnerVersion: string) => contentHash({ repositoryCommit, candidate, tasks: [...tasks].sort(), runnerVersion });
-const dominates = (a: TrialMetrics, b: TrialMetrics) => {
+const dominates = (a: TrialMetrics, b: TrialMetrics, objectives: readonly SearchSpace["objectives"][number][]) => {
 	const aCost = a.total_cost_micros ?? Number.POSITIVE_INFINITY;
 	const bCost = b.total_cost_micros ?? Number.POSITIVE_INFINITY;
 	const aDuration = a.median_duration_ms ?? Number.POSITIVE_INFINITY;
 	const bDuration = b.median_duration_ms ?? Number.POSITIVE_INFINITY;
-	const noWorse = a.success_rate >= b.success_rate && aCost <= bCost && aDuration <= bDuration;
-	return noWorse && (a.success_rate > b.success_rate || aCost < bCost || aDuration < bDuration);
+	const checks = objectives.map((objective) => objective === "correctness" ? [a.success_rate >= b.success_rate, a.success_rate > b.success_rate] : objective === "reliability" ? [(a.reliability ?? -1) >= (b.reliability ?? -1), (a.reliability ?? -1) > (b.reliability ?? -1)] : objective === "cost" ? [aCost <= bCost, aCost < bCost] : [aDuration <= bDuration, aDuration < bDuration]);
+	return checks.every(([noWorse]) => noWorse) && checks.some(([, better]) => better);
 };
-const choose = (trials: readonly OptimizationTrial[]) => trials.filter((trial): trial is OptimizationTrial & { metrics: TrialMetrics } => trial.metrics !== null && ["COMPLETED", "CACHED"].includes(trial.status)).sort((a, b) => b.metrics.success_rate - a.metrics.success_rate || (a.metrics.total_cost_micros ?? Number.MAX_SAFE_INTEGER) - (b.metrics.total_cost_micros ?? Number.MAX_SAFE_INTEGER) || (a.metrics.median_duration_ms ?? Number.MAX_SAFE_INTEGER) - (b.metrics.median_duration_ms ?? Number.MAX_SAFE_INTEGER) || a.candidate.id.localeCompare(b.candidate.id));
+const choose = (trials: readonly OptimizationTrial[], objectives: readonly SearchSpace["objectives"][number][]) => trials.filter((trial): trial is OptimizationTrial & { metrics: TrialMetrics } => trial.metrics !== null && ["COMPLETED", "CACHED"].includes(trial.status)).sort((a, b) => {
+	for (const objective of objectives) {
+		const difference = objective === "correctness" ? b.metrics.success_rate - a.metrics.success_rate : objective === "reliability" ? (b.metrics.reliability ?? -1) - (a.metrics.reliability ?? -1) : objective === "cost" ? (a.metrics.total_cost_micros ?? Number.MAX_SAFE_INTEGER) - (b.metrics.total_cost_micros ?? Number.MAX_SAFE_INTEGER) : (a.metrics.median_duration_ms ?? Number.MAX_SAFE_INTEGER) - (b.metrics.median_duration_ms ?? Number.MAX_SAFE_INTEGER);
+		if (difference !== 0) return difference;
+	}
+	return a.candidate.id.localeCompare(b.candidate.id);
+});
 
 export async function optimize(options: {
 	searchSpace: unknown;
@@ -135,8 +141,8 @@ export async function optimize(options: {
 			if (options.signal?.aborted) break;
 		}
 	}
-	const ranked = choose(trials);
-	const pareto = ranked.filter((candidate) => !ranked.some((other) => other.id !== candidate.id && dominates(other.metrics, candidate.metrics)));
+	const ranked = choose(trials, space.objectives);
+	const pareto = ranked.filter((candidate) => !ranked.some((other) => other.id !== candidate.id && dominates(other.metrics, candidate.metrics, space.objectives)));
 	const baselineTrial = ranked.find((item) => item.candidate.id === baseline.id);
 	const recommended = ranked[0];
 	const completed = options.now?.() ?? new Date();
