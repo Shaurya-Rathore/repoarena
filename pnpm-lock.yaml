@@ -21,6 +21,12 @@ importers:
         specifier: 2.1.8
         version: 2.1.8(@types/node@24.10.1)
 
+  actions/repoarena:
+    dependencies:
+      '@repoarena/cloud-api-client':
+        specifier: workspace:*
+        version: link:../../packages/cloud-api-client
+
   packages/adapter-sdk:
     dependencies:
       '@repoarena/pricing':
@@ -260,6 +266,9 @@ importers:
       '@repoarena/github-provider':
         specifier: workspace:*
         version: link:../github-provider
+      jose:
+        specifier: 6.0.13
+        version: 6.0.13
       zod:
         specifier: 3.24.2
         version: 3.24.2
@@ -1207,6 +1216,9 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  jose@6.0.13:
+    resolution: {integrity: sha512-Yms4GpbmdANamS51kKK6w4hRlKx8KTxbWyAAKT/MhUMtqbIqh5mb2HjhTNUbk7TFL8/MBB5zWSDohL7ed4k/UA==}
 
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
@@ -2464,6 +2476,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  jose@6.0.13: {}
 
   loupe@3.2.1: {}
 

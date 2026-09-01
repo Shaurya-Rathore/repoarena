@@ -1,0 +1,13 @@
+{
+	"name": "@repoarena/github-action",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test:unit": "vitest run src/index.test.ts"
+	},
+	"dependencies": { "@repoarena/cloud-api-client": "workspace:*" }
+}

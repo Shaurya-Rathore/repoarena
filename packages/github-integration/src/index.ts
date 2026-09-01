@@ -7,6 +7,7 @@ import {
 	type GitHubRepository,
 } from "@repoarena/github-provider";
 import { z } from "zod";
+export * from "./oidc.js";
 
 export type TriggerPolicy = Readonly<{
 	pushDefaultBranch: boolean;

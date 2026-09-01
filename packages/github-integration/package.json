@@ -15,6 +15,7 @@
 		"@repoarena/cloud-db": "workspace:*",
 		"@repoarena/core": "workspace:*",
 		"@repoarena/github-provider": "workspace:*",
+		"jose": "6.0.13",
 		"zod": "3.24.2"
 	}
 }

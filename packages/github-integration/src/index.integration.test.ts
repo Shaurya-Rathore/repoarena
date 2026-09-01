@@ -7,7 +7,12 @@ import {
 	resetTestDatabase,
 } from "@repoarena/cloud-db";
 import type { GitHubRepository } from "@repoarena/github-provider";
-import { GitHubIntegration, type TriggerPolicy } from "./index.js";
+import {
+	GitHubActionsAuth,
+	GitHubIntegration,
+	type OidcClaims,
+	type TriggerPolicy,
+} from "./index.js";
 
 const source = new URL(process.env.DATABASE_URL ?? "");
 source.pathname = "/repoarena_test";
@@ -322,4 +327,131 @@ it("connects installation, push, PR, checks, runner result and uninstall without
 		"evaluator-private-sentinel",
 	])
 		expect(publicSurfaces).not.toContain(forbidden);
+});
+
+it("exchanges repository-bound OIDC once for a short-lived action credential", async () => {
+	const ownerId = await cloud.createUser({
+		provider: "mock",
+		subject: randomUUID(),
+		displayName: "Action Owner",
+	});
+	const owner: Principal = { type: "USER", userId: ownerId };
+	const organizationId = await cloud.createOrganization(
+		ownerId,
+		`action-${randomUUID().slice(0, 8)}`,
+		"Action Org",
+	);
+	await cloud.setPlan(owner, organizationId, "TEAM");
+	const repositoryId = await cloud.createRepository(owner, {
+		organizationId,
+		provider: "github",
+		externalId: "424242",
+		owner: "octo",
+		name: "action",
+		defaultBranch: "main",
+		visibility: "PRIVATE",
+	});
+	const task = await cloud.createTaskVersion(owner, {
+		organizationId,
+		repositoryId,
+		taskKey: "action-task",
+		title: "Action task",
+		publicTask: { schema: "repoarena.task/v1" },
+		validationState: "READY",
+	});
+	const benchmark = await cloud.createBenchmark(owner, {
+		organizationId,
+		repositoryId,
+		name: "Action benchmark",
+		configuration: {},
+		taskVersionIds: [task.versionId],
+	});
+	const run = await cloud.createRun(owner, {
+		organizationId,
+		repositoryId,
+		benchmarkVersionId: benchmark.versionId,
+		idempotencyKey: randomUUID(),
+	});
+	const now = new Date("2026-09-01T12:00:00Z");
+	const verifier = {
+		verify: async (value: string): Promise<OidcClaims> =>
+			JSON.parse(
+				Buffer.from(value.split(".")[1] ?? "", "base64url").toString(),
+			) as OidcClaims,
+	};
+	const auth = new GitHubActionsAuth(database, cloud, verifier, () => now);
+	await auth.createTrust(owner, {
+		organizationId,
+		repositoryId,
+		githubRepositoryId: "424242",
+		audience: "repoarena-cloud",
+		allowedRefs: ["refs/heads/main"],
+		workflowPattern: "octo/action/.github/workflows/repoarena.yml@**",
+	});
+	const tokenFor = (overrides: Partial<OidcClaims> = {}) => {
+		const payload: OidcClaims = {
+			iss: "https://token.actions.githubusercontent.com",
+			aud: "repoarena-cloud",
+			iat: Math.floor(now.getTime() / 1_000) - 10,
+			exp: Math.floor(now.getTime() / 1_000) + 300,
+			jti: randomUUID(),
+			repository_id: "424242",
+			repository: "octo/action",
+			ref: "refs/heads/main",
+			job_workflow_ref:
+				"octo/action/.github/workflows/repoarena.yml@refs/heads/main",
+			...overrides,
+		};
+		return `header.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.signature`;
+	};
+	const oidc = tokenFor();
+	const credential = await auth.exchange(oidc, "repoarena-cloud");
+	expect(credential).toMatchObject({ organizationId, repositoryId });
+	expect(credential.token).toMatch(/^raa_/);
+	await expect(auth.exchange(oidc, "repoarena-cloud")).rejects.toThrow(
+		"already used",
+	);
+	await expect(
+		auth.exchange(tokenFor({ ref: "refs/pull/1/merge" }), "repoarena-cloud"),
+	).rejects.toThrow("ref is not trusted");
+	await expect(
+		auth.exchange(tokenFor({ repository_id: "999" }), "repoarena-cloud"),
+	).rejects.toThrow("trust is unavailable");
+	await expect(
+		auth.exchange(
+			tokenFor({ iss: "https://attacker.invalid" }),
+			"repoarena-cloud",
+		),
+	).rejects.toThrow("claims are invalid");
+	await expect(
+		auth.exchange(
+			tokenFor({ exp: Math.floor(now.getTime() / 1_000) - 1 }),
+			"repoarena-cloud",
+		),
+	).rejects.toThrow("expired or stale");
+	const publicResult = {
+		state: "COMPLETED",
+		statistics: { solved: 1, task_count: 1 },
+	};
+	expect(
+		await auth.submitResult(credential.token, run.runId, publicResult),
+	).toEqual({ replay: false });
+	expect(
+		await auth.submitResult(credential.token, run.runId, publicResult),
+	).toEqual({ replay: true });
+	await expect(
+		auth.submitResult(credential.token, run.runId, {
+			...publicResult,
+			evaluator_private: "hidden",
+		}),
+	).rejects.toThrow("evaluator-private");
+	const persisted = JSON.stringify(
+		(
+			await database.query(
+				"SELECT action,metadata FROM audit_events WHERE organization_id=$1",
+				[organizationId],
+			)
+		).rows,
+	);
+	expect(persisted).not.toContain(credential.token);
 });

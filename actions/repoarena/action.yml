@@ -1,0 +1,64 @@
+name: RepoArena Benchmark
+description: Run a deterministic RepoArena benchmark with BYOK agents and optionally publish it to RepoArena Cloud.
+inputs:
+  agents:
+    description: Comma-separated RepoArena adapter names.
+    required: true
+  tasks:
+    description: Optional comma-separated task IDs.
+    required: false
+  runs-per-task:
+    description: Clean benchmark repetitions per task.
+    default: "1"
+  parallelism:
+    description: Maximum concurrent attempts.
+    default: "1"
+  sandbox:
+    description: local or docker.
+    default: local
+  fail-on-unsolved:
+    description: Fail the workflow when an attempt is unsolved.
+    default: "true"
+  reports:
+    description: Comma-separated report formats.
+    default: terminal,json,html,junit
+  output:
+    description: Report output directory.
+    default: .repoarena/reports
+  max-attempts:
+    description: Hard upper bound on configured logical attempts.
+    default: "100"
+  max-cost-micros:
+    description: Optional cost ceiling; unknown pricing fails safely.
+    required: false
+  max-duration-ms:
+    description: Action wall-time ceiling.
+    default: "3600000"
+  publish-cloud:
+    description: Publish to an existing cloud run.
+    default: "false"
+  cloud-endpoint:
+    description: RepoArena Cloud API origin.
+    required: false
+  cloud-run-id:
+    description: Existing canonical cloud run ID for publication.
+    required: false
+  oidc-audience:
+    description: GitHub OIDC audience used for cloud exchange.
+    default: repoarena-cloud
+outputs:
+  run-id:
+    description: Local benchmark run ID.
+  solved-count:
+    description: Number of solved logical attempts.
+  attempt-count:
+    description: Number of logical attempts.
+  success-rate:
+    description: Benchmark success rate.
+  report-path:
+    description: Report directory.
+  cloud-run-id:
+    description: Cloud run identifier when published.
+runs:
+  using: node24
+  main: dist/index.js

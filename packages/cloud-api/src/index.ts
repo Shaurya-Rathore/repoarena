@@ -14,6 +14,7 @@ import {
 } from "@repoarena/cloud-core";
 import { RepoArenaError } from "@repoarena/core";
 import type {
+	GitHubActionsAuth,
 	GitHubIntegration,
 	TriggerPolicy,
 } from "@repoarena/github-integration";
@@ -34,6 +35,20 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/organizations/{organizationId}/runs": { get: {}, post: {} },
 		"/api/v1/runner/jobs/claim": { post: {} },
 		"/api/v1/runner/jobs/{jobId}/result": { post: {} },
+		"/api/v1/github/webhooks": { post: {} },
+		"/api/v1/github/actions/oidc/exchange": { post: {} },
+		"/api/v1/github/actions/runs/{runId}/result": { post: {} },
+		"/api/v1/organizations/{organizationId}/github/installations": {
+			post: {},
+		},
+		"/api/v1/organizations/{organizationId}/repositories/{repositoryId}/github-policy":
+			{
+				put: {},
+			},
+		"/api/v1/organizations/{organizationId}/repositories/{repositoryId}/github-oidc-trusts":
+			{
+				post: {},
+			},
 	},
 });
 
@@ -226,6 +241,20 @@ const bodySchemas = {
 				.strict(),
 		})
 		.strict(),
+	githubOidcTrust: z
+		.object({
+			github_repository_id: z.string().regex(/^\d+$/),
+			audience: z.string().min(1).max(200),
+			allowed_refs: z.array(z.string().min(1).max(500)).max(100),
+			workflow_pattern: z.string().min(1).max(500).optional(),
+		})
+		.strict(),
+	oidcExchange: z
+		.object({
+			token: z.string().min(20).max(20_000),
+			audience: z.string().min(1).max(200),
+		})
+		.strict(),
 	result: z.object({ result: z.unknown() }).strict(),
 };
 const parseCookies = (request: IncomingMessage) =>
@@ -292,6 +321,7 @@ export function createCloudApi(options: {
 	now?: () => Date;
 	logger?: (event: Readonly<Record<string, unknown>>) => void;
 	github?: GitHubIntegration;
+	githubActions?: GitHubActionsAuth;
 }) {
 	const cloud = new CloudService(options.database, options.now);
 	const artifacts = new ArtifactService(
@@ -366,6 +396,28 @@ export function createCloudApi(options: {
 					response,
 					result.duplicate ? 200 : 202,
 					{ data: result },
+					requestId,
+				);
+			}
+			if (
+				request.method === "POST" &&
+				path === "/api/v1/github/actions/oidc/exchange"
+			) {
+				if (!options.githubActions)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"GitHub Actions OIDC is unavailable.",
+					);
+				const body = bodySchemas.oidcExchange.parse(await readBody(request));
+				return json(
+					response,
+					200,
+					{
+						data: await options.githubActions.exchange(
+							body.token,
+							body.audience,
+						),
+					},
 					requestId,
 				);
 			}
@@ -566,6 +618,39 @@ export function createCloudApi(options: {
 									repositoryId: uuid.parse(githubPolicy[2]),
 									benchmarkVersionId: body.benchmark_version_id,
 									policy: body.policy as TriggerPolicy,
+								},
+							),
+						},
+					},
+					requestId,
+				);
+			}
+			const githubTrust = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/repositories\/([^/]+)\/github-oidc-trusts$/,
+			);
+			if (githubTrust?.[1] && githubTrust[2] && request.method === "POST") {
+				if (!options.githubActions)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"GitHub Actions OIDC is unavailable.",
+					);
+				const body = bodySchemas.githubOidcTrust.parse(await readBody(request));
+				return json(
+					response,
+					201,
+					{
+						data: {
+							id: await options.githubActions.createTrust(
+								await authenticate(request, true),
+								{
+									organizationId: uuid.parse(githubTrust[1]),
+									repositoryId: uuid.parse(githubTrust[2]),
+									githubRepositoryId: body.github_repository_id,
+									audience: body.audience,
+									allowedRefs: body.allowed_refs,
+									...(body.workflow_pattern
+										? { workflowPattern: body.workflow_pattern }
+										: {}),
 								},
 							),
 						},
@@ -871,6 +956,36 @@ export function createCloudApi(options: {
 					200,
 					{
 						data: await cloud.submitResult(principal, jobId, body.result),
+					},
+					requestId,
+				);
+			}
+			const actionResult = path.match(
+				/^\/api\/v1\/github\/actions\/runs\/([^/]+)\/result$/,
+			);
+			if (actionResult?.[1] && request.method === "POST") {
+				if (!options.githubActions)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"GitHub Actions publication is unavailable.",
+					);
+				const bearer =
+					request.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+				if (!bearer)
+					throw new RepoArenaError(
+						"AUTH_UNAVAILABLE",
+						"GitHub Action credential is required.",
+					);
+				const body = bodySchemas.result.parse(await readBody(request));
+				return json(
+					response,
+					200,
+					{
+						data: await options.githubActions.submitResult(
+							bearer,
+							uuid.parse(actionResult[1]),
+							body.result,
+						),
 					},
 					requestId,
 				);

@@ -4,6 +4,13 @@ import {
 	GitHubOAuthProvider,
 } from "../packages/cloud-api/dist/index.js";
 import { createDatabase } from "../packages/cloud-db/dist/index.js";
+import { CloudService } from "../packages/cloud-core/dist/index.js";
+import { GitHubProvider } from "../packages/github-provider/dist/index.js";
+import {
+	GitHubActionsAuth,
+	GitHubIntegration,
+	GitHubOidcVerifier,
+} from "../packages/github-integration/dist/index.js";
 import {
 	FileObjectStorage,
 	S3ObjectStorage,
@@ -34,11 +41,35 @@ const oauth =
 				`${origin}/auth/callback`,
 			)
 		: undefined;
+const githubProvider =
+	process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY
+		? new GitHubProvider({
+				appId: process.env.GITHUB_APP_ID,
+				privateKey: process.env.GITHUB_APP_PRIVATE_KEY.replaceAll("\\n", "\n"),
+			})
+		: undefined;
+const cloud = new CloudService(database);
+const github =
+	githubProvider && process.env.GITHUB_WEBHOOK_SECRET
+		? new GitHubIntegration(
+				database,
+				cloud,
+				githubProvider,
+				process.env.GITHUB_WEBHOOK_SECRET,
+			)
+		: undefined;
+const githubActions = new GitHubActionsAuth(
+	database,
+	cloud,
+	new GitHubOidcVerifier(),
+);
 const api = createCloudApi({
 	database,
 	storage,
 	publicOrigin: origin,
 	...(oauth ? { oauth } : {}),
+	...(github ? { github } : {}),
+	githubActions,
 });
 const address = await api.start(
 	"127.0.0.1",
