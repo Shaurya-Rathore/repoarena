@@ -167,6 +167,9 @@ importers:
       '@repoarena/core':
         specifier: workspace:*
         version: link:../core
+      '@repoarena/github-integration':
+        specifier: workspace:*
+        version: link:../github-integration
       '@repoarena/object-storage':
         specifier: workspace:*
         version: link:../object-storage
@@ -242,6 +245,24 @@ importers:
       '@repoarena/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/github-integration:
+    dependencies:
+      '@repoarena/cloud-core':
+        specifier: workspace:*
+        version: link:../cloud-core
+      '@repoarena/cloud-db':
+        specifier: workspace:*
+        version: link:../cloud-db
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+      '@repoarena/github-provider':
+        specifier: workspace:*
+        version: link:../github-provider
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
 
   packages/github-provider: {}
 

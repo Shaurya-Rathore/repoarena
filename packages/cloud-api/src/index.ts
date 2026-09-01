@@ -13,6 +13,10 @@ import {
 	type Principal,
 } from "@repoarena/cloud-core";
 import { RepoArenaError } from "@repoarena/core";
+import type {
+	GitHubIntegration,
+	TriggerPolicy,
+} from "@repoarena/github-integration";
 import type { ObjectStorage } from "@repoarena/object-storage";
 import { z } from "zod";
 
@@ -188,6 +192,40 @@ const bodySchemas = {
 			next_run_at: z.string().datetime(),
 		})
 		.strict(),
+	githubInstallation: z
+		.object({
+			id: z.number().int().positive(),
+			account: z.object({
+				id: z.number().int().positive(),
+				login: z.string().min(1),
+				type: z.enum(["User", "Organization", "Enterprise", "Bot"]),
+			}),
+			permissions: z.record(z.string()),
+			repository_selection: z.enum(["all", "selected"]),
+		})
+		.strict(),
+	githubPolicy: z
+		.object({
+			benchmark_version_id: uuid,
+			policy: z
+				.object({
+					pushDefaultBranch: z.boolean(),
+					pullRequests: z.boolean(),
+					includeDrafts: z.boolean(),
+					forkPolicy: z.enum(["SKIP", "UNPRIVILEGED"]),
+					branches: z.array(z.string().min(1).max(200)).max(100).optional(),
+					paths: z.array(z.string().min(1).max(500)).max(200).optional(),
+					budget: z
+						.object({
+							max_attempts: z.number().int().min(1).max(100),
+							max_cost_micros: z.number().int().positive().optional(),
+							max_runtime_ms: z.number().int().positive().optional(),
+						})
+						.strict(),
+				})
+				.strict(),
+		})
+		.strict(),
 	result: z.object({ result: z.unknown() }).strict(),
 };
 const parseCookies = (request: IncomingMessage) =>
@@ -209,6 +247,18 @@ const readBody = async (request: IncomingMessage) => {
 	} catch {
 		throw new RepoArenaError("CONFIG_INVALID", "Malformed JSON.");
 	}
+};
+const readRawBody = async (request: IncomingMessage) => {
+	const chunks: Buffer[] = [];
+	let size = 0;
+	for await (const chunk of request) {
+		const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+		size += bytes.byteLength;
+		if (size > 1_000_000)
+			throw new RepoArenaError("CONFIG_INVALID", "Request body is too large.");
+		chunks.push(bytes);
+	}
+	return Buffer.concat(chunks);
 };
 const decodeCursor = (value: string | null) => {
 	if (!value) return undefined;
@@ -241,6 +291,7 @@ export function createCloudApi(options: {
 	publicOrigin: string;
 	now?: () => Date;
 	logger?: (event: Readonly<Record<string, unknown>>) => void;
+	github?: GitHubIntegration;
 }) {
 	const cloud = new CloudService(options.database, options.now);
 	const artifacts = new ArtifactService(
@@ -285,6 +336,39 @@ export function createCloudApi(options: {
 				return json(response, 200, { status: "ok" }, requestId);
 			if (request.method === "GET" && path === "/api/v1/openapi.json")
 				return json(response, 200, cloudApiContract, requestId);
+			if (request.method === "POST" && path === "/api/v1/github/webhooks") {
+				if (!options.github)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"GitHub integration is unavailable.",
+					);
+				if (
+					!(request.headers["content-type"] ?? "")
+						.toString()
+						.startsWith("application/json")
+				)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"GitHub webhook content type is invalid.",
+					);
+				const result = await options.github.ingest(await readRawBody(request), {
+					...(typeof request.headers["x-hub-signature-256"] === "string"
+						? { signature: request.headers["x-hub-signature-256"] }
+						: {}),
+					...(typeof request.headers["x-github-event"] === "string"
+						? { event: request.headers["x-github-event"] }
+						: {}),
+					...(typeof request.headers["x-github-delivery"] === "string"
+						? { delivery: request.headers["x-github-delivery"] }
+						: {}),
+				});
+				return json(
+					response,
+					result.duplicate ? 200 : 202,
+					{ data: result },
+					requestId,
+				);
+			}
 			if (request.method === "GET" && path === "/health/ready") {
 				const database = await options.database
 					.query("SELECT 1")
@@ -432,6 +516,62 @@ export function createCloudApi(options: {
 					visibility: body.visibility,
 				});
 				return json(response, 201, { data: { id } }, requestId);
+			}
+			const githubInstallation = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/github\/installations$/,
+			);
+			if (githubInstallation?.[1] && request.method === "POST") {
+				if (!options.github)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"GitHub integration is unavailable.",
+					);
+				const body = bodySchemas.githubInstallation.parse(
+					await readBody(request),
+				);
+				return json(
+					response,
+					201,
+					{
+						data: {
+							id: await options.github.linkInstallation(
+								await authenticate(request, true),
+								uuid.parse(githubInstallation[1]),
+								body,
+							),
+						},
+					},
+					requestId,
+				);
+			}
+			const githubPolicy = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/repositories\/([^/]+)\/github-policy$/,
+			);
+			if (githubPolicy?.[1] && githubPolicy[2] && request.method === "PUT") {
+				if (!options.github)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"GitHub integration is unavailable.",
+					);
+				const body = bodySchemas.githubPolicy.parse(await readBody(request));
+				return json(
+					response,
+					200,
+					{
+						data: {
+							id: await options.github.setTriggerPolicy(
+								await authenticate(request, true),
+								{
+									organizationId: uuid.parse(githubPolicy[1]),
+									repositoryId: uuid.parse(githubPolicy[2]),
+									benchmarkVersionId: body.benchmark_version_id,
+									policy: body.policy as TriggerPolicy,
+								},
+							),
+						},
+					},
+					requestId,
+				);
 			}
 			const memberships = path.match(
 				/^\/api\/v1\/organizations\/([^/]+)\/memberships$/,

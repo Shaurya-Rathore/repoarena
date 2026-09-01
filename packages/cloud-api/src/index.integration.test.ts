@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import {
 	resetTestDatabase,
 } from "@repoarena/cloud-db";
 import { FileObjectStorage } from "@repoarena/object-storage";
+import { GitHubIntegration } from "@repoarena/github-integration";
 import { createCloudApi, type OAuthProvider } from "./index.js";
 
 const source = new URL(process.env.DATABASE_URL ?? "");
@@ -32,11 +33,25 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 			displayName: "Owner",
 		}),
 	};
+	const githubSecret = "api-webhook-secret";
+	const github = new GitHubIntegration(
+		database,
+		new CloudService(database),
+		{
+			listInstallationRepositories: async () => [],
+			createCheckRun: async () => ({ id: 1 }),
+			updateCheckRun: async () => undefined,
+			upsertPullRequestComment: async () => 1,
+			invalidateInstallationToken: () => undefined,
+		},
+		githubSecret,
+	);
 	const api = createCloudApi({
 		database,
 		storage: new FileObjectStorage(root),
 		oauth: provider,
 		publicOrigin: "http://127.0.0.1",
+		github,
 	});
 	const address = await api.start("127.0.0.1", 0);
 	const origin = address.url;
@@ -97,6 +112,48 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 		expect(created.status).toBe(201);
 		const organizationId = ((await created.json()) as { data: { id: string } })
 			.data.id;
+		const installationPayload = {
+			id: 445566,
+			account: { id: 1122, login: "api-org", type: "Organization" },
+			permissions: { checks: "write", contents: "read" },
+			repository_selection: "selected",
+		};
+		const linked = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/github/installations`,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify(installationPayload),
+			},
+		);
+		expect(linked.status).toBe(201);
+		const webhookBody = Buffer.from(
+			JSON.stringify({ action: "created", installation: installationPayload }),
+		);
+		const webhookHeaders = {
+			"content-type": "application/json",
+			"x-github-event": "installation",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": `sha256=${createHmac("sha256", githubSecret).update(webhookBody).digest("hex")}`,
+		};
+		const webhook = await fetch(`${origin}/api/v1/github/webhooks`, {
+			method: "POST",
+			headers: webhookHeaders,
+			body: webhookBody,
+		});
+		expect(webhook.status).toBe(202);
+		const duplicateWebhook = await fetch(`${origin}/api/v1/github/webhooks`, {
+			method: "POST",
+			headers: webhookHeaders,
+			body: webhookBody,
+		});
+		expect(duplicateWebhook.status).toBe(200);
+		const invalidWebhook = await fetch(`${origin}/api/v1/github/webhooks`, {
+			method: "POST",
+			headers: { ...webhookHeaders, "x-hub-signature-256": "sha256=00" },
+			body: webhookBody,
+		});
+		expect(invalidWebhook.status).toBe(403);
 		const service = new CloudService(database);
 		const organizations = await service.listOrganizations(
 			await service.createUser({

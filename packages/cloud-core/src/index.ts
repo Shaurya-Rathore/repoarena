@@ -105,13 +105,21 @@ export type Principal = Readonly<
 			scopes: readonly string[];
 	  }
 	| { type: "RUNNER"; runnerId: string; organizationId: string }
+	| {
+			type: "SYSTEM";
+			organizationId: string;
+			actorId: string;
+			integration: "GITHUB";
+	  }
 >;
 const actorId = (principal: Principal) =>
 	principal.type === "USER"
 		? principal.userId
 		: principal.type === "API_KEY"
 			? principal.apiKeyId
-			: principal.runnerId;
+			: principal.type === "RUNNER"
+				? principal.runnerId
+				: principal.actorId;
 export type Entitlements = Readonly<{
 	private_repositories: boolean;
 	scheduled_runs: boolean;
@@ -195,6 +203,16 @@ export class CloudService {
 			if (
 				principal.organizationId !== organizationId ||
 				!principal.scopes.includes(permission)
+			)
+				fail("FORBIDDEN", "Permission denied.");
+			return;
+		}
+		if (principal.type === "SYSTEM") {
+			if (
+				principal.organizationId !== organizationId ||
+				!(["REPOSITORY_MANAGE", "BENCHMARK_RUN"] as Permission[]).includes(
+					permission,
+				)
 			)
 				fail("FORBIDDEN", "Permission denied.");
 			return;
