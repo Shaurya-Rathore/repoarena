@@ -28,6 +28,7 @@ it("applies a fresh migration and enforces tenant constraints", async () => {
 			"task_private_versions",
 			"github_installations",
 			"github_webhook_deliveries",
+			"public_run_publications",
 		]),
 	);
 	const user = randomUUID();
@@ -70,7 +71,7 @@ it("rolls back failed transactions", async () => {
 it("serializes concurrent migration startup with an advisory lock", async () => {
 	await Promise.all([migrate(database), migrate(database)]);
 	const rows = await database.query("SELECT version FROM schema_migrations");
-	expect(rows.rowCount).toBe(3);
+	expect(rows.rowCount).toBe(4);
 });
 
 it("migrates a supported v1 fixture forward without losing data", async () => {

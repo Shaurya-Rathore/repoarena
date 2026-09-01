@@ -347,6 +347,21 @@ importers:
 
   packages/pricing: {}
 
+  packages/public-publishing:
+    dependencies:
+      '@repoarena/cloud-core':
+        specifier: workspace:*
+        version: link:../cloud-core
+      '@repoarena/cloud-db':
+        specifier: workspace:*
+        version: link:../cloud-db
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: 3.24.2
+        version: 3.24.2
+
   packages/readiness:
     dependencies:
       '@repoarena/core':

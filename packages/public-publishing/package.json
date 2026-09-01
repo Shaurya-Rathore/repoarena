@@ -1,0 +1,19 @@
+{
+	"name": "@repoarena/public-publishing",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"exports": "./dist/index.js",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test:unit": "vitest run src/index.test.ts",
+		"test:integration": "vitest run --config vitest.integration.config.ts"
+	},
+	"dependencies": {
+		"@repoarena/cloud-core": "workspace:*",
+		"@repoarena/cloud-db": "workspace:*",
+		"@repoarena/core": "workspace:*",
+		"zod": "3.24.2"
+	}
+}
