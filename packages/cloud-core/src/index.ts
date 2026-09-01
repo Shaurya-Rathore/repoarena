@@ -435,6 +435,32 @@ export class CloudService {
 		);
 	}
 
+	async listTasks(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "REPOSITORY_READ");
+		return (
+			await this.database.query(
+				"SELECT t.id,t.repository_id,t.task_key,t.title,t.archived_at,t.created_at,tv.id AS latest_version_id,tv.version,tv.content_hash,tv.validation_state,tv.created_at AS version_created_at FROM tasks t LEFT JOIN LATERAL (SELECT id,version,content_hash,validation_state,created_at FROM task_versions WHERE task_id=t.id ORDER BY version DESC LIMIT 1) tv ON true WHERE t.organization_id=$1 AND t.archived_at IS NULL ORDER BY t.created_at DESC,t.id DESC",
+				[organizationId],
+			)
+		).rows;
+	}
+
+	async listBenchmarks(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "REPOSITORY_READ");
+		return (
+			await this.database.query(
+				"SELECT b.id,b.repository_id,b.name,b.state,b.created_at,b.updated_at,bv.id AS latest_version_id,bv.version,bv.config_hash,bv.created_at AS version_created_at FROM benchmarks b LEFT JOIN LATERAL (SELECT id,version,config_hash,created_at FROM benchmark_versions WHERE benchmark_id=b.id ORDER BY version DESC LIMIT 1) bv ON true WHERE b.organization_id=$1 AND b.state='ACTIVE' ORDER BY b.created_at DESC,b.id DESC",
+				[organizationId],
+			)
+		).rows;
+	}
+
 	async createBenchmark(
 		actor: Principal,
 		input: {
@@ -751,6 +777,35 @@ export class CloudService {
 		return {
 			type: "RUNNER",
 			runnerId: row.id,
+			organizationId: row.organization_id,
+		};
+	}
+
+	async authenticateJobCredential(
+		value: string,
+		jobId: string,
+		requiredScope: "result:write" | "artifact:write",
+	): Promise<Extract<Principal, { type: "RUNNER" }>> {
+		const result = await this.database.query<{
+			runner_id: string;
+			organization_id: string;
+			token_hash: string;
+			scopes: string[];
+		}>(
+			"SELECT jc.runner_id,j.organization_id,jc.token_hash,jc.scopes FROM job_credentials jc JOIN jobs j ON j.id=jc.job_id JOIN runners r ON r.id=jc.runner_id WHERE jc.job_id=$1 AND jc.token_hash=$2 AND jc.consumed_at IS NULL AND jc.expires_at>now() AND j.state='LEASED' AND j.lease_owner=jc.runner_id AND r.state='ACTIVE'",
+			[jobId, digest(value)],
+		);
+		const row =
+			result.rows[0] ??
+			fail("AUTH_UNAVAILABLE", "Job credential is invalid or lacks scope.");
+		if (
+			!equalDigest(value, row.token_hash) ||
+			!row.scopes.includes(requiredScope)
+		)
+			fail("AUTH_UNAVAILABLE", "Job credential is invalid or lacks scope.");
+		return {
+			type: "RUNNER",
+			runnerId: row.runner_id,
 			organizationId: row.organization_id,
 		};
 	}
@@ -1136,6 +1191,20 @@ export class CloudService {
 			const count = result.rows[0]?.count ?? limit + 1;
 			return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
 		});
+	}
+
+	async recordMetric(
+		name: string,
+		value: number,
+		labels: Record<string, string> = {},
+		organizationId?: string,
+	): Promise<void> {
+		if (!/^[a-z][a-z0-9_.-]{1,100}$/.test(name) || !Number.isFinite(value))
+			fail("CONFIG_INVALID", "Metric is invalid.");
+		await this.database.query(
+			"INSERT INTO metric_events(id,organization_id,name,value,labels,recorded_at) VALUES($1,$2,$3,$4,$5,$6)",
+			[randomUUID(), organizationId ?? null, name, value, labels, this.now()],
+		);
 	}
 
 	async listRuns(

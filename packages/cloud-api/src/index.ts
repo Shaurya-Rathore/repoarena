@@ -140,6 +140,37 @@ const bodySchemas = {
 			expires_at: z.string().datetime().optional(),
 		})
 		.strict(),
+	task: z
+		.object({
+			repository_id: uuid,
+			task_key: z.string().min(1).max(200),
+			title: z.string().min(1).max(500),
+			public_task: z.unknown(),
+			validation_state: z.string().min(1).max(100),
+		})
+		.strict(),
+	benchmark: z
+		.object({
+			repository_id: uuid,
+			name: z.string().min(1).max(200),
+			configuration: z.unknown(),
+			task_version_ids: z.array(uuid).min(1).max(10_000),
+		})
+		.strict(),
+	membership: z
+		.object({
+			user_id: uuid,
+			role: z.enum(["OWNER", "ADMIN", "MEMBER", "VIEWER"]),
+			state: z.enum(["ACTIVE", "REVOKED"]).default("ACTIVE"),
+		})
+		.strict(),
+	schedule: z
+		.object({
+			benchmark_version_id: uuid,
+			cadence: z.enum(["HOURLY", "DAILY", "WEEKLY"]),
+			next_run_at: z.string().datetime(),
+		})
+		.strict(),
 	result: z.object({ result: z.unknown() }).strict(),
 };
 const parseCookies = (request: IncomingMessage) =>
@@ -160,6 +191,17 @@ const readBody = async (request: IncomingMessage) => {
 		return JSON.parse(body || "null") as unknown;
 	} catch {
 		throw new RepoArenaError("CONFIG_INVALID", "Malformed JSON.");
+	}
+};
+const decodeCursor = (value: string | null) => {
+	if (!value) return undefined;
+	try {
+		return z
+			.object({ createdAt: z.string().datetime(), id: uuid })
+			.strict()
+			.parse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+	} catch {
+		throw new RepoArenaError("CONFIG_INVALID", "Cursor is invalid.");
 	}
 };
 const json = (
@@ -249,6 +291,19 @@ export function createCloudApi(options: {
 				);
 			}
 			if (request.method === "GET" && path === "/auth/login") {
+				if (
+					!(
+						await cloud.consumeRateLimit(
+							`auth:${request.socket.remoteAddress}`,
+							20,
+							60_000,
+						)
+					).allowed
+				)
+					throw new RepoArenaError(
+						"RATE_LIMITED",
+						"Too many authentication requests.",
+					);
 				if (!options.oauth)
 					throw new RepoArenaError("CONFIG_INVALID", "OAuth is unavailable.");
 				const state = randomBytes(24).toString("base64url");
@@ -257,6 +312,16 @@ export function createCloudApi(options: {
 				response.setHeader("location", options.oauth.authorizationUrl(state));
 				response.end();
 				return;
+			}
+			if (request.method === "POST" && path === "/api/v1/logout") {
+				await authenticate(request, true);
+				const session = parseCookies(request).repoarena_session;
+				if (session) await cloud.revokeSession(session);
+				response.setHeader(
+					"set-cookie",
+					"repoarena_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure",
+				);
+				return json(response, 200, { data: { revoked: true } }, requestId);
 			}
 			if (request.method === "GET" && path === "/auth/callback") {
 				if (!options.oauth)
@@ -348,16 +413,145 @@ export function createCloudApi(options: {
 				});
 				return json(response, 201, { data: { id } }, requestId);
 			}
+			const memberships = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/memberships$/,
+			);
+			if (memberships?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listMemberships(
+							await authenticate(request),
+							uuid.parse(memberships[1]),
+						),
+					},
+					requestId,
+				);
+			if (memberships?.[1] && request.method === "PUT") {
+				const body = bodySchemas.membership.parse(await readBody(request));
+				await cloud.setMembership(
+					await authenticate(request, true),
+					uuid.parse(memberships[1]),
+					body.user_id,
+					body.role,
+					body.state,
+				);
+				return json(response, 200, { data: { updated: true } }, requestId);
+			}
+			const tasks = path.match(/^\/api\/v1\/organizations\/([^/]+)\/tasks$/);
+			if (tasks?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listTasks(
+							await authenticate(request),
+							uuid.parse(tasks[1]),
+						),
+					},
+					requestId,
+				);
+			if (tasks?.[1] && request.method === "POST") {
+				const body = bodySchemas.task.parse(await readBody(request));
+				return json(
+					response,
+					201,
+					{
+						data: await cloud.createTaskVersion(
+							await authenticate(request, true),
+							{
+								organizationId: uuid.parse(tasks[1]),
+								repositoryId: body.repository_id,
+								taskKey: body.task_key,
+								title: body.title,
+								publicTask: body.public_task,
+								validationState: body.validation_state,
+							},
+						),
+					},
+					requestId,
+				);
+			}
+			const task = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/tasks\/([^/]+)$/,
+			);
+			if (task?.[1] && task[2] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.getPublicTask(
+							await authenticate(request),
+							uuid.parse(task[1]),
+							uuid.parse(task[2]),
+						),
+					},
+					requestId,
+				);
+			const benchmarks = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/benchmarks$/,
+			);
+			if (benchmarks?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listBenchmarks(
+							await authenticate(request),
+							uuid.parse(benchmarks[1]),
+						),
+					},
+					requestId,
+				);
+			if (benchmarks?.[1] && request.method === "POST") {
+				const body = bodySchemas.benchmark.parse(await readBody(request));
+				return json(
+					response,
+					201,
+					{
+						data: await cloud.createBenchmark(
+							await authenticate(request, true),
+							{
+								organizationId: uuid.parse(benchmarks[1]),
+								repositoryId: body.repository_id,
+								name: body.name,
+								configuration: body.configuration,
+								taskVersionIds: body.task_version_ids,
+							},
+						),
+					},
+					requestId,
+				);
+			}
+			const schedules = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/schedules$/,
+			);
+			if (schedules?.[1] && request.method === "POST") {
+				const body = bodySchemas.schedule.parse(await readBody(request));
+				return json(
+					response,
+					201,
+					{
+						data: {
+							id: await cloud.createSchedule(
+								await authenticate(request, true),
+								{
+									organizationId: uuid.parse(schedules[1]),
+									benchmarkVersionId: body.benchmark_version_id,
+									cadence: body.cadence,
+									nextRunAt: body.next_run_at,
+								},
+							),
+						},
+					},
+					requestId,
+				);
+			}
 			const runs = path.match(/^\/api\/v1\/organizations\/([^/]+)\/runs$/);
 			if (runs?.[1] && request.method === "GET") {
 				const organizationId = uuid.parse(runs[1]);
-				const cursor = url.searchParams.get("cursor");
-				const decoded = cursor
-					? (JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
-							createdAt: string;
-							id: string;
-						})
-					: undefined;
+				const decoded = decodeCursor(url.searchParams.get("cursor"));
 				const result = await cloud.listRuns(
 					await authenticate(request),
 					organizationId,
@@ -419,6 +613,14 @@ export function createCloudApi(options: {
 					},
 					requestId,
 				);
+			if (run?.[1] && run[2] && request.method === "DELETE") {
+				await cloud.cancelRun(
+					await authenticate(request, true),
+					uuid.parse(run[1]),
+					uuid.parse(run[2]),
+				);
+				return json(response, 200, { data: { cancelled: true } }, requestId);
+			}
 			const keys = path.match(/^\/api\/v1\/organizations\/([^/]+)\/api-keys$/);
 			if (keys?.[1] && request.method === "POST") {
 				const principal = await authenticate(request, true);
@@ -492,7 +694,12 @@ export function createCloudApi(options: {
 			}
 			const result = path.match(/^\/api\/v1\/runner\/jobs\/([^/]+)\/result$/);
 			if (result?.[1] && request.method === "POST") {
-				const principal = await authenticate(request, true);
+				const jobId = uuid.parse(result[1]);
+				const bearer =
+					request.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+				const principal = bearer?.startsWith("raj_")
+					? await cloud.authenticateJobCredential(bearer, jobId, "result:write")
+					: await authenticate(request, true);
 				if (principal.type !== "RUNNER")
 					throw new RepoArenaError(
 						"FORBIDDEN",
@@ -503,11 +710,7 @@ export function createCloudApi(options: {
 					response,
 					200,
 					{
-						data: await cloud.submitResult(
-							principal,
-							uuid.parse(result[1]),
-							body.result,
-						),
+						data: await cloud.submitResult(principal, jobId, body.result),
 					},
 					requestId,
 				);

@@ -123,6 +123,144 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 			}),
 		});
 		expect(oversized.status).toBe(400);
+		const repositoryResponse = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/repositories`,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					provider: "manual",
+					owner: "repoarena",
+					name: "fixture",
+					default_branch: "main",
+					visibility: "PUBLIC",
+				}),
+			},
+		);
+		expect(repositoryResponse.status).toBe(201);
+		const repositoryId = (
+			(await repositoryResponse.json()) as { data: { id: string } }
+		).data.id;
+		const taskResponse = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/tasks`,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					repository_id: repositoryId,
+					task_key: "bug-1",
+					title: "Fix behavior",
+					public_task: { schema: "repoarena.task/v1", prompt: "safe" },
+					validation_state: "VALID",
+				}),
+			},
+		);
+		expect(taskResponse.status).toBe(201);
+		const taskVersionId = (
+			(await taskResponse.json()) as { data: { versionId: string } }
+		).data.versionId;
+		const benchmarkResponse = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/benchmarks`,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					repository_id: repositoryId,
+					name: "API benchmark",
+					configuration: { runs_per_task: 1 },
+					task_version_ids: [taskVersionId],
+				}),
+			},
+		);
+		expect(benchmarkResponse.status).toBe(201);
+		const benchmarkVersionId = (
+			(await benchmarkResponse.json()) as { data: { versionId: string } }
+		).data.versionId;
+		const runResponse = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/runs`,
+			{
+				method: "POST",
+				headers: { ...headers, "idempotency-key": "api-e2e-run" },
+				body: JSON.stringify({
+					repository_id: repositoryId,
+					benchmark_version_id: benchmarkVersionId,
+					budget: { max_attempts: 1 },
+				}),
+			},
+		);
+		expect(runResponse.status).toBe(201);
+		const run = (await runResponse.json()) as {
+			data: { runId: string; jobId: string };
+		};
+		const replayResponse = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/runs`,
+			{
+				method: "POST",
+				headers: { ...headers, "idempotency-key": "api-e2e-run" },
+				body: JSON.stringify({
+					repository_id: repositoryId,
+					benchmark_version_id: benchmarkVersionId,
+					budget: { max_attempts: 1 },
+				}),
+			},
+		);
+		expect(
+			((await replayResponse.json()) as { data: { replay: boolean } }).data
+				.replay,
+		).toBe(true);
+		const runnerResponse = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/runners`,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					name: "api-runner",
+					capabilities: { sandbox: "local" },
+					software_version: "test",
+				}),
+			},
+		);
+		const runner = (await runnerResponse.json()) as {
+			data: { id: string; token: string };
+		};
+		const claimResponse = await fetch(`${origin}/api/v1/runner/jobs/claim`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${runner.data.token}` },
+		});
+		expect(claimResponse.status).toBe(200);
+		const claim = (await claimResponse.json()) as {
+			data: { id: string; credential: string };
+		};
+		expect(claim.data.id).toBe(run.data.jobId);
+		const safeResult = { schema_version: 1, status: "COMPLETED", solved: 1 };
+		const resultResponse = await fetch(
+			`${origin}/api/v1/runner/jobs/${claim.data.id}/result`,
+			{
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${claim.data.credential}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ result: safeResult }),
+			},
+		);
+		expect(resultResponse.status).toBe(200);
+		const completedResponse = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/runs/${run.data.runId}`,
+			{ headers: { cookie } },
+		);
+		const completed = (await completedResponse.json()) as {
+			data: { state: string; canonical_result: unknown };
+		};
+		expect(completed.data).toMatchObject({
+			state: "COMPLETED",
+			canonical_result: safeResult,
+		});
+		const invalidCursor = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/runs?cursor=invalid`,
+			{ headers: { cookie } },
+		);
+		expect(invalidCursor.status).toBe(400);
 		const audit = await database.query(
 			"SELECT action,metadata FROM audit_events WHERE organization_id=$1 ORDER BY created_at",
 			[organizationId],
