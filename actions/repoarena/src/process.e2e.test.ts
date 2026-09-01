@@ -120,3 +120,30 @@ it("executes the built Action and built RepoArena CLI end to end", async () => {
 	expect(reports.some((name) => name.endsWith(".html"))).toBe(true);
 	expect(reports.some((name) => name.endsWith(".xml"))).toBe(true);
 });
+
+it("propagates built CLI fail-on-unsolved semantics", async () => {
+	const { root, cli } = await repositoryFixture();
+	const action = join(process.cwd(), "dist", "index.js");
+	await expect(
+		execute(process.execPath, [action], {
+			cwd: root,
+			env: {
+				PATH: process.env.PATH ?? "",
+				NODE_ENV: "test",
+				REPOARENA_TEST_ADAPTERS: "1",
+				REPOARENA_CLI_PATH: cli,
+				GITHUB_WORKSPACE: root,
+				INPUT_AGENTS: "fake-noop",
+				"INPUT_FAIL-ON-UNSOLVED": "true",
+			},
+			maxBuffer: 2_000_000,
+		}),
+	).rejects.toMatchObject({ code: 1 });
+	const persisted = JSON.parse(
+		await readFile(
+			join(root, ".repoarena", "state", "runs", "latest.json"),
+			"utf8",
+		),
+	) as { statistics: { solved_count: number } };
+	expect(persisted.statistics.solved_count).toBe(0);
+});

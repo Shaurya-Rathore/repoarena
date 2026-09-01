@@ -5,11 +5,14 @@
 	"type": "module",
 	"main": "dist/index.js",
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
+		"build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/index.js",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test:unit": "vitest run src/index.test.ts",
 		"test:e2e": "vitest run src/process.e2e.test.ts"
 	},
 	"dependencies": { "@repoarena/cloud-api-client": "workspace:*" },
-	"devDependencies": { "@repoarena/task-spec": "workspace:*" }
+	"devDependencies": {
+		"@repoarena/task-spec": "workspace:*",
+		"esbuild": "0.25.9"
+	}
 }

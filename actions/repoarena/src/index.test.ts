@@ -153,3 +153,52 @@ it("publishes through a scoped credential without exposing it in outputs", async
 	expect(requests[0]?.headers.get("authorization")).toBe(`Bearer ${secret}`);
 	expect(await readFile(value.output, "utf8")).not.toContain(secret);
 });
+
+it("exchanges GitHub OIDC for a short-lived cloud credential", async () => {
+	const value = await fixture();
+	const oidcRequestSecret = "actions-request-token-sentinel";
+	const actionCredential = "short-lived-action-credential-sentinel";
+	const requests: Request[] = [];
+	vi.stubGlobal(
+		"fetch",
+		async (input: string | URL | Request, init?: RequestInit) => {
+			const request = new Request(input, init);
+			requests.push(request);
+			if (request.url.startsWith("https://oidc.actions.example"))
+				return new Response(
+					JSON.stringify({ value: "header.claims.signature" }),
+				);
+			if (request.url.endsWith("/api/v1/github/actions/oidc/exchange"))
+				return new Response(
+					JSON.stringify({ data: { token: actionCredential } }),
+				);
+			return new Response(JSON.stringify({ data: { replay: false } }));
+		},
+	);
+	await runAction(
+		{
+			GITHUB_WORKSPACE: value.root,
+			GITHUB_OUTPUT: value.output,
+			INPUT_AGENTS: "perfect",
+			"INPUT_PUBLISH-CLOUD": "true",
+			"INPUT_CLOUD-ENDPOINT": "https://cloud.example",
+			"INPUT_CLOUD-RUN-ID": "cloud-run",
+			ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.actions.example/token",
+			ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidcRequestSecret,
+		},
+		value.spawn,
+	);
+	expect(requests).toHaveLength(3);
+	expect(new URL(requests[0]?.url ?? "").searchParams.get("audience")).toBe(
+		"repoarena-cloud",
+	);
+	expect(requests[0]?.headers.get("authorization")).toBe(
+		`Bearer ${oidcRequestSecret}`,
+	);
+	expect(requests[2]?.headers.get("authorization")).toBe(
+		`Bearer ${actionCredential}`,
+	);
+	const publicOutput = await readFile(value.output, "utf8");
+	expect(publicOutput).not.toContain(oidcRequestSecret);
+	expect(publicOutput).not.toContain(actionCredential);
+});
