@@ -67,6 +67,35 @@ const fail = (code: ErrorCode, message: string): never => {
 	throw new RepoArenaError(code, message);
 };
 
+const privateResultKeys = new Set([
+	"evaluator_private",
+	"private_evidence",
+	"private_path",
+	"hidden_source",
+	"hidden_assertion",
+	"reference_solution",
+]);
+export const assertPublicResult = (value: unknown): void => {
+	let visited = 0;
+	const walk = (current: unknown, depth: number): void => {
+		if (++visited > 100_000 || depth > 64)
+			fail("CONFIG_INVALID", "Result exceeds structural limits.");
+		if (Array.isArray(current)) {
+			for (const item of current) walk(item, depth + 1);
+			return;
+		}
+		if (!current || typeof current !== "object") return;
+		for (const [key, nested] of Object.entries(current)) {
+			if (privateResultKeys.has(key.toLowerCase()))
+				fail("CONFIG_INVALID", "Result contains evaluator-private data.");
+			walk(nested, depth + 1);
+		}
+	};
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		fail("CONFIG_INVALID", "Canonical result must be an object.");
+	walk(value, 0);
+};
+
 export type Principal = Readonly<
 	| { type: "USER"; userId: string }
 	| {
@@ -167,7 +196,7 @@ export class CloudService {
 				principal.organizationId !== organizationId ||
 				!principal.scopes.includes(permission)
 			)
-				fail("AUTH_UNAVAILABLE", "Permission denied.");
+				fail("FORBIDDEN", "Permission denied.");
 			return;
 		}
 		if (principal.type !== "USER")
@@ -181,7 +210,7 @@ export class CloudService {
 		);
 		const role = result.rows[0]?.role;
 		if (!role || !roleAllows(role, permission))
-			fail("AUTH_UNAVAILABLE", "Permission denied.");
+			fail("FORBIDDEN", "Permission denied.");
 	}
 
 	async listOrganizations(userId: string): Promise<unknown[]> {
@@ -589,6 +618,10 @@ export class CloudService {
 			"INSERT INTO sessions(id,user_id,token_hash,csrf_hash,expires_at) VALUES($1,$2,$3,$4,$5)",
 			[randomUUID(), userId, session.hash, digest(csrf), expiresAt],
 		);
+		await this.database.query(
+			"INSERT INTO audit_events(id,actor_type,actor_id,action,target_type,target_id,metadata) VALUES($1,'USER',$2,'session.created','session',NULL,'{}')",
+			[randomUUID(), userId],
+		);
 		return { token: session.plaintext, csrf, expiresAt };
 	}
 
@@ -612,10 +645,23 @@ export class CloudService {
 	}
 
 	async revokeSession(value: string): Promise<void> {
-		await this.database.query(
-			"UPDATE sessions SET revoked_at=now() WHERE token_hash=$1",
-			[digest(value)],
-		);
+		await this.database.transaction(async (client) => {
+			const result = await client.query<{ user_id: string }>(
+				"UPDATE sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL RETURNING user_id",
+				[digest(value)],
+			);
+			if (result.rows[0])
+				await this.audit(
+					client,
+					null,
+					"USER",
+					result.rows[0].user_id,
+					"session.revoked",
+					"session",
+					result.rows[0].user_id,
+					{},
+				);
+		});
 	}
 
 	async revokeApiKey(
@@ -652,6 +698,8 @@ export class CloudService {
 		expiresAt?: string,
 	): Promise<{ id: string; key: string; prefix: string }> {
 		await this.authorize(actor, organizationId, "API_KEY_MANAGE");
+		if (!(await this.entitlements(organizationId)).api_access)
+			fail("FORBIDDEN", "The organization plan does not allow API access.");
 		const generated = token("rak");
 		const id = randomUUID();
 		await this.database.transaction(async (client) => {
@@ -924,6 +972,7 @@ export class CloudService {
 		jobId: string,
 		result: unknown,
 	): Promise<{ replay: boolean }> {
+		assertPublicResult(result);
 		const hash = contentHash(result);
 		return this.database.transaction(async (client) => {
 			const job = await client.query<{

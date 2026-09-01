@@ -16,6 +16,23 @@ import { RepoArenaError } from "@repoarena/core";
 import type { ObjectStorage } from "@repoarena/object-storage";
 import { z } from "zod";
 
+export const cloudApiContract = Object.freeze({
+	openapi: "3.1.0",
+	info: { title: "RepoArena Cloud API", version: "v1" },
+	paths: {
+		"/api/v1/organizations": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/repositories": {
+			get: {},
+			post: {},
+		},
+		"/api/v1/organizations/{organizationId}/tasks": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/benchmarks": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/runs": { get: {}, post: {} },
+		"/api/v1/runner/jobs/claim": { post: {} },
+		"/api/v1/runner/jobs/{jobId}/result": { post: {} },
+	},
+});
+
 export interface OAuthProvider {
 	authorizationUrl(state: string): string;
 	exchange(code: string): Promise<{
@@ -223,6 +240,7 @@ export function createCloudApi(options: {
 	oauth?: OAuthProvider;
 	publicOrigin: string;
 	now?: () => Date;
+	logger?: (event: Readonly<Record<string, unknown>>) => void;
 }) {
 	const cloud = new CloudService(options.database, options.now);
 	const artifacts = new ArtifactService(
@@ -265,6 +283,8 @@ export function createCloudApi(options: {
 			const path = url.pathname;
 			if (request.method === "GET" && path === "/health/live")
 				return json(response, 200, { status: "ok" }, requestId);
+			if (request.method === "GET" && path === "/api/v1/openapi.json")
+				return json(response, 200, cloudApiContract, requestId);
 			if (request.method === "GET" && path === "/health/ready") {
 				const database = await options.database
 					.query("SELECT 1")
@@ -785,6 +805,19 @@ export function createCloudApi(options: {
 			);
 		} finally {
 			const duration = performance.now() - started;
+			options.logger?.({
+				request_id: requestId,
+				operation: `${request.method ?? "UNKNOWN"} ${(request.url ?? "/").split("?")[0]}`,
+				duration_ms: duration,
+				status: response.statusCode,
+				outcome: response.statusCode < 400 ? "success" : "failure",
+			});
+			await cloud
+				.recordMetric("http.request.duration_ms", duration, {
+					method: request.method ?? "UNKNOWN",
+					status: String(response.statusCode),
+				})
+				.catch(() => undefined);
 			if (!Number.isFinite(duration)) response.destroy();
 		}
 	});
