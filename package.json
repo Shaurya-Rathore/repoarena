@@ -19,6 +19,9 @@
 		"dev:infra:down": "docker compose -f infra/compose/docker-compose.dev.yml down",
 		"db:migrate": "node scripts/db-migrate.mjs",
 		"db:seed": "node scripts/db-seed.mjs",
+		"cloud:api": "node scripts/cloud-api.mjs",
+		"cloud:scheduler": "node scripts/cloud-scheduler.mjs",
+		"cloud:jobs": "node scripts/cloud-jobs.mjs",
 		"test:postgres": "pnpm --filter @repoarena/cloud-db test:integration",
 		"skills:validate": "node scripts/validate-skills.mjs"
 	},
