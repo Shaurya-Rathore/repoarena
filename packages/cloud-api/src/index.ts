@@ -34,6 +34,11 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/organizations/{organizationId}/tasks": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/benchmarks": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/runs": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/schedules": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/runners": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/api-keys": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/audit-events": { get: {} },
+		"/api/v1/organizations/{organizationId}/usage": { get: {} },
 		"/api/v1/runner/jobs/claim": { post: {} },
 		"/api/v1/runner/jobs/{jobId}/result": { post: {} },
 		"/api/v1/github/webhooks": { post: {} },
@@ -891,6 +896,18 @@ export function createCloudApi(options: {
 					requestId,
 				);
 			}
+			if (schedules?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listSchedules(
+							await authenticate(request),
+							uuid.parse(schedules[1]),
+						),
+					},
+					requestId,
+				);
 			const runs = path.match(/^\/api\/v1\/organizations\/([^/]+)\/runs$/);
 			if (runs?.[1] && request.method === "GET") {
 				const organizationId = uuid.parse(runs[1]);
@@ -965,6 +982,18 @@ export function createCloudApi(options: {
 				return json(response, 200, { data: { cancelled: true } }, requestId);
 			}
 			const keys = path.match(/^\/api\/v1\/organizations\/([^/]+)\/api-keys$/);
+			if (keys?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listApiKeys(
+							await authenticate(request),
+							uuid.parse(keys[1]),
+						),
+					},
+					requestId,
+				);
 			if (keys?.[1] && request.method === "POST") {
 				const principal = await authenticate(request, true);
 				if (principal.type !== "USER")
@@ -986,9 +1015,32 @@ export function createCloudApi(options: {
 					requestId,
 				);
 			}
+			const revokeKey = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/api-keys\/([^/]+)$/,
+			);
+			if (revokeKey?.[1] && revokeKey[2] && request.method === "DELETE") {
+				await cloud.revokeApiKey(
+					await authenticate(request, true),
+					uuid.parse(revokeKey[1]),
+					uuid.parse(revokeKey[2]),
+				);
+				return json(response, 200, { data: { revoked: true } }, requestId);
+			}
 			const runners = path.match(
 				/^\/api\/v1\/organizations\/([^/]+)\/runners$/,
 			);
+			if (runners?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listRunners(
+							await authenticate(request),
+							uuid.parse(runners[1]),
+						),
+					},
+					requestId,
+				);
 			if (runners?.[1] && request.method === "POST") {
 				const principal = await authenticate(request, true);
 				const body = bodySchemas.runner.parse(await readBody(request));
@@ -1007,6 +1059,46 @@ export function createCloudApi(options: {
 					requestId,
 				);
 			}
+			const revokeRunner = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/runners\/([^/]+)$/,
+			);
+			if (revokeRunner?.[1] && revokeRunner[2] && request.method === "DELETE") {
+				await cloud.revokeRunner(
+					await authenticate(request, true),
+					uuid.parse(revokeRunner[1]),
+					uuid.parse(revokeRunner[2]),
+				);
+				return json(response, 200, { data: { revoked: true } }, requestId);
+			}
+			const auditEvents = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/audit-events$/,
+			);
+			if (auditEvents?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listAuditEvents(
+							await authenticate(request),
+							uuid.parse(auditEvents[1]),
+							Number(url.searchParams.get("limit") ?? 50),
+						),
+					},
+					requestId,
+				);
+			const usage = path.match(/^\/api\/v1\/organizations\/([^/]+)\/usage$/);
+			if (usage?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listUsage(
+							await authenticate(request),
+							uuid.parse(usage[1]),
+						),
+					},
+					requestId,
+				);
 			if (request.method === "POST" && path === "/api/v1/runner/heartbeat") {
 				const principal = await authenticate(request, true);
 				if (principal.type !== "RUNNER")

@@ -252,6 +252,74 @@ export class CloudService {
 		).rows;
 	}
 
+	async listApiKeys(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "API_KEY_MANAGE");
+		return (
+			await this.database.query(
+				"SELECT id,name,key_prefix,scopes,expires_at,revoked_at,last_used_at,created_at FROM api_keys WHERE organization_id=$1 ORDER BY created_at DESC,id",
+				[organizationId],
+			)
+		).rows;
+	}
+
+	async listRunners(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "RUNNER_MANAGE");
+		return (
+			await this.database.query(
+				"SELECT r.id,r.name,r.capabilities,r.software_version,r.state,r.last_heartbeat_at,r.revoked_at,r.created_at,j.id AS current_job_id,CASE WHEN r.state='REVOKED' THEN 'REVOKED' WHEN r.last_heartbeat_at IS NULL THEN 'REGISTERED' WHEN r.last_heartbeat_at < now()-interval '2 minutes' THEN 'STALE' ELSE 'ONLINE' END AS availability FROM runners r LEFT JOIN jobs j ON j.lease_owner=r.id AND j.state='LEASED' WHERE r.organization_id=$1 ORDER BY r.created_at DESC,r.id",
+				[organizationId],
+			)
+		).rows;
+	}
+
+	async listSchedules(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "ORG_READ");
+		return (
+			await this.database.query(
+				"SELECT s.id,s.benchmark_version_id,s.cadence,s.timezone,s.enabled,s.next_run_at,s.last_run_at,s.created_at,s.updated_at,b.name AS benchmark_name FROM schedules s JOIN benchmark_versions bv ON bv.id=s.benchmark_version_id JOIN benchmarks b ON b.id=bv.benchmark_id WHERE s.organization_id=$1 ORDER BY s.created_at DESC,s.id",
+				[organizationId],
+			)
+		).rows;
+	}
+
+	async listAuditEvents(
+		actor: Principal,
+		organizationId: string,
+		limit = 50,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "ORG_MANAGE");
+		if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+			fail("CONFIG_INVALID", "Audit limit is invalid.");
+		return (
+			await this.database.query(
+				"SELECT id,actor_type,actor_id,action,target_type,target_id,metadata,created_at FROM audit_events WHERE organization_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2",
+				[organizationId, limit],
+			)
+		).rows;
+	}
+
+	async listUsage(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "ORG_READ");
+		return (
+			await this.database.query(
+				"SELECT id,benchmark_run_id,attempt_id,usage_type,provider,model,quantity,cost_snapshot,billing_owner,created_at FROM usage_records WHERE organization_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100",
+				[organizationId],
+			)
+		).rows;
+	}
+
 	async listMemberships(
 		actor: Principal,
 		organizationId: string,
