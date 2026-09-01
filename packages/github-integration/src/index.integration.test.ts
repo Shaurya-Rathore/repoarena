@@ -6,7 +6,7 @@ import {
 	migrate,
 	resetTestDatabase,
 } from "@repoarena/cloud-db";
-import type { GitHubRepository } from "@repoarena/github-provider";
+import { GitHubError, type GitHubRepository } from "@repoarena/github-provider";
 import {
 	GitHubActionsAuth,
 	GitHubIntegration,
@@ -70,8 +70,12 @@ it("connects installation, push, PR, checks, runner result and uninstall without
 	const updatedChecks: unknown[] = [];
 	const comments: string[] = [];
 	const invalidated: string[] = [];
+	let listFailure: Error | null = null;
 	const provider = {
-		listInstallationRepositories: async () => repositories,
+		listInstallationRepositories: async () => {
+			if (listFailure) throw listFailure;
+			return repositories;
+		},
 		createCheckRun: async (
 			id: string,
 			_owner: string,
@@ -208,6 +212,10 @@ it("connects installation, push, PR, checks, runner result and uninstall without
 	expect(processedPush.state).toBe("PROCESSED");
 	expect(createdChecks).toHaveLength(1);
 	const runId = processedPush.runId ?? "";
+	await github.markRunStarted(runId);
+	expect(updatedChecks).toContainEqual(
+		expect.objectContaining({ status: "in_progress" }),
+	);
 	const registration = await cloud.registerRunner(
 		owner,
 		organizationId,
@@ -226,9 +234,9 @@ it("connects installation, push, PR, checks, runner result and uninstall without
 		attempts: [],
 	});
 	await github.publishRun(runId);
-	expect(updatedChecks).toEqual([
+	expect(updatedChecks).toContainEqual(
 		expect.objectContaining({ status: "completed", conclusion: "success" }),
-	]);
+	);
 	const pull = signed(
 		{
 			action: "synchronize",
@@ -274,6 +282,41 @@ it("connects installation, push, PR, checks, runner result and uninstall without
 	await expect(
 		github.ingest(Buffer.from(`${push.raw}x`), push.headers),
 	).rejects.toThrow("signature");
+	listFailure = new GitHubError(
+		"SECONDARY_RATE_LIMITED",
+		"GitHub asked the processor to slow down.",
+		true,
+		1_000,
+	);
+	const transient = signed(
+		{
+			action: "added",
+			installation: { id: installation.id },
+			repositories_added: [],
+		},
+		"installation_repositories",
+	);
+	const transientAccepted = await github.ingest(
+		transient.raw,
+		transient.headers,
+	);
+	await expect(
+		github.processDelivery(transientAccepted.deliveryId),
+	).rejects.toThrow("slow down");
+	const retryJob = await database.query<{
+		state: string;
+		attempt_count: number;
+	}>(
+		"SELECT state,attempt_count FROM jobs WHERE type='GITHUB_WEBHOOK' AND payload->>'delivery_id'=$1",
+		[transientAccepted.deliveryId],
+	);
+	expect(retryJob.rows[0]).toMatchObject({ state: "QUEUED", attempt_count: 1 });
+	listFailure = null;
+	await database.query(
+		"UPDATE jobs SET available_at='2000-01-01T00:00:00Z' WHERE payload->>'delivery_id'=$1",
+		[transientAccepted.deliveryId],
+	);
+	expect(await github.processQueued()).toMatchObject({ processed: 1 });
 	repositories.splice(0);
 	const removed = signed(
 		{

@@ -7,7 +7,9 @@
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test:unit": "vitest run src/index.test.ts"
+		"test:unit": "vitest run src/index.test.ts",
+		"test:e2e": "vitest run src/process.e2e.test.ts"
 	},
-	"dependencies": { "@repoarena/cloud-api-client": "workspace:*" }
+	"dependencies": { "@repoarena/cloud-api-client": "workspace:*" },
+	"devDependencies": { "@repoarena/task-spec": "workspace:*" }
 }

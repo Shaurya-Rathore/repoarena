@@ -3,6 +3,7 @@ import type { CloudService, Principal } from "@repoarena/cloud-core";
 import type { Database } from "@repoarena/cloud-db";
 import { contentHash, RepoArenaError } from "@repoarena/core";
 import {
+	GitHubError,
 	verifyWebhook,
 	type GitHubRepository,
 } from "@repoarena/github-provider";
@@ -373,19 +374,23 @@ export class GitHubIntegration {
 		const repositories = await this.provider.listInstallationRepositories(
 			row.github_installation_id,
 		);
+		const entitlements = await this.cloud.entitlements(row.organization_id);
+		const eligible = repositories.filter(
+			(repository) => !repository.private || entitlements.private_repositories,
+		);
 		await this.database.transaction(async (client) => {
-			for (const repository of repositories)
+			for (const repository of eligible)
 				await this.upsertRepository(client, row, repository);
 			await client.query(
 				"UPDATE repositories SET state='ARCHIVED',updated_at=$2 WHERE github_installation_id=$1 AND external_id <> ALL($3::text[])",
-				[row.id, this.now(), repositories.map((repo) => String(repo.id))],
+				[row.id, this.now(), eligible.map((repo) => String(repo.id))],
 			);
 			await client.query(
 				"UPDATE github_installations SET state='ACTIVE',installed_at=coalesce(installed_at,$2),updated_at=$2 WHERE id=$1",
 				[row.id, this.now()],
 			);
 		});
-		return repositories.length;
+		return eligible.length;
 	}
 
 	private async upsertRepository(
@@ -441,21 +446,63 @@ export class GitHubIntegration {
 			await this.finishDelivery(id, result.state);
 			return result;
 		} catch (error) {
-			await this.database.query(
-				"UPDATE github_webhook_deliveries SET state='FAILED',failure_code=$2,failure_message=$3,updated_at=$4 WHERE id=$1",
-				[
-					id,
-					error instanceof RepoArenaError
+			const code =
+				error instanceof GitHubError
+					? error.code
+					: error instanceof RepoArenaError
 						? error.code
-						: "GITHUB_PROCESSING_FAILED",
-					error instanceof Error
-						? error.message.slice(0, 500)
-						: "GitHub processing failed.",
-					this.now(),
-				],
+						: "GITHUB_PROCESSING_FAILED";
+			const message =
+				error instanceof Error
+					? error.message.slice(0, 500)
+					: "GitHub processing failed.";
+			const retryable = error instanceof GitHubError && error.retryable;
+			const availableAt = new Date(
+				this.now().getTime() +
+					Math.min(
+						error instanceof GitHubError
+							? (error.retryAfterMs ?? 60_000)
+							: 60_000,
+						3_600_000,
+					),
 			);
+			await this.database.transaction(async (client) => {
+				await client.query(
+					"UPDATE github_webhook_deliveries SET state='FAILED',failure_code=$2,failure_message=$3,updated_at=$4 WHERE id=$1",
+					[id, code, message, this.now()],
+				);
+				await client.query(
+					"UPDATE jobs SET attempt_count=attempt_count+1,state=CASE WHEN $2 AND attempt_count+1<max_attempts THEN 'QUEUED' ELSE 'DEAD_LETTER' END,available_at=CASE WHEN $2 THEN $3::timestamptz ELSE available_at END,final_error_code=$4,final_error_message=$5,completed_at=CASE WHEN $2 AND attempt_count+1<max_attempts THEN NULL ELSE $6::timestamptz END,updated_at=$6::timestamptz WHERE type='GITHUB_WEBHOOK' AND payload->>'delivery_id'=$1 AND state='QUEUED'",
+					[id, retryable, availableAt, code, message, this.now()],
+				);
+			});
 			throw error;
 		}
+	}
+
+	async processQueued(
+		limit = 25,
+	): Promise<{ processed: number; failed: number }> {
+		if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+			throw new RepoArenaError(
+				"CONFIG_INVALID",
+				"GitHub delivery batch size is invalid.",
+			);
+		const jobs = await this.database.query<{ delivery_id: string }>(
+			"SELECT payload->>'delivery_id' AS delivery_id FROM jobs WHERE type='GITHUB_WEBHOOK' AND state='QUEUED' AND available_at<=$1 ORDER BY priority DESC,created_at,id LIMIT $2",
+			[this.now(), limit],
+		);
+		let processed = 0;
+		let failed = 0;
+		for (const job of jobs.rows) {
+			try {
+				await this.processDelivery(job.delivery_id);
+				processed++;
+			} catch {
+				failed++;
+			}
+		}
+		return { processed, failed };
 	}
 
 	private async handleDelivery(
@@ -499,6 +546,10 @@ export class GitHubIntegration {
 				await client.query(
 					"UPDATE repositories SET state='ARCHIVED',updated_at=$2 WHERE github_installation_id=$1",
 					[installation.id, this.now()],
+				);
+				await client.query(
+					"INSERT INTO audit_events(id,organization_id,actor_type,action,target_type,target_id,metadata) VALUES($1,$2,'SYSTEM','github.installation_removed','github_installation',$3,$4)",
+					[randomUUID(), installation.organization_id, installation.id, {}],
 				);
 			});
 			this.provider.invalidateInstallationToken(
@@ -624,6 +675,15 @@ export class GitHubIntegration {
 			"UPDATE benchmark_runs SET trigger_provenance=$2 WHERE id=$1",
 			[run.runId, provenance],
 		);
+		await this.database.query(
+			"INSERT INTO audit_events(id,organization_id,actor_type,action,target_type,target_id,metadata) VALUES($1,$2,'SYSTEM','github.run_triggered','benchmark_run',$3,$4)",
+			[
+				randomUUID(),
+				repo.organization_id,
+				run.runId,
+				{ delivery_id: deliveryIdValue, event, head_sha: headSha },
+			],
+		);
 		const installation = await this.installationByExternal(
 			delivery.github_installation_id,
 		);
@@ -735,6 +795,43 @@ export class GitHubIntegration {
 				],
 			);
 		}
+	}
+
+	async markRunStarted(runId: string): Promise<void> {
+		const result = await this.database.query<{
+			github_check_run_id: string;
+			github_installation_id: string;
+			owner_name: string;
+			repository_name: string;
+		}>(
+			"SELECT gcr.github_check_run_id,r.github_installation_id,r.owner_name,r.repository_name FROM github_check_runs gcr JOIN repositories r ON r.id=gcr.repository_id WHERE gcr.benchmark_run_id=$1 AND gcr.status='queued'",
+			[runId],
+		);
+		const row = result.rows[0];
+		if (!row) return;
+		const installation = await this.database.query<{
+			github_installation_id: string;
+		}>(
+			"SELECT github_installation_id FROM github_installations WHERE id=$1 AND state='ACTIVE'",
+			[row.github_installation_id],
+		);
+		const external = installation.rows[0]?.github_installation_id;
+		if (!external)
+			throw new RepoArenaError(
+				"FORBIDDEN",
+				"GitHub installation is unavailable.",
+			);
+		await this.provider.updateCheckRun(
+			external,
+			row.owner_name,
+			row.repository_name,
+			Number(row.github_check_run_id),
+			{ status: "in_progress", started_at: this.now().toISOString() },
+		);
+		await this.database.query(
+			"UPDATE github_check_runs SET status='in_progress',updated_at=$2 WHERE benchmark_run_id=$1 AND status='queued'",
+			[runId, this.now()],
+		);
 	}
 
 	private async finishDelivery(id: string, state: "PROCESSED" | "IGNORED") {

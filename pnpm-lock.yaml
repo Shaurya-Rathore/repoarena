@@ -26,6 +26,10 @@ importers:
       '@repoarena/cloud-api-client':
         specifier: workspace:*
         version: link:../../packages/cloud-api-client
+    devDependencies:
+      '@repoarena/task-spec':
+        specifier: workspace:*
+        version: link:../../packages/task-spec
 
   packages/adapter-sdk:
     dependencies:

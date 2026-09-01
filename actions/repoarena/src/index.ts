@@ -174,7 +174,13 @@ export async function runAction(
 		boolean(input(environment, "fail-on-unsolved", "true"), "fail-on-unsolved")
 	)
 		args.push("--fail-on-unsolved");
-	const result = await spawnProcess(cli, args, cwd, environment, maxDuration);
+	const result = await spawnProcess(
+		cli.endsWith(".js") ? process.execPath : cli,
+		cli.endsWith(".js") ? [cli, ...args] : args,
+		cwd,
+		environment,
+		maxDuration,
+	);
 	if (result.stdout) process.stdout.write(result.stdout);
 	if (result.stderr)
 		process.stderr.write(

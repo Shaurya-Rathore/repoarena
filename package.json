@@ -22,6 +22,7 @@
 		"cloud:api": "node scripts/cloud-api.mjs",
 		"cloud:scheduler": "node scripts/cloud-scheduler.mjs",
 		"cloud:jobs": "node scripts/cloud-jobs.mjs",
+		"cloud:github-webhooks": "node scripts/github-webhooks.mjs",
 		"test:postgres": "pnpm --filter @repoarena/cloud-db test:integration",
 		"skills:validate": "node scripts/validate-skills.mjs"
 	},
