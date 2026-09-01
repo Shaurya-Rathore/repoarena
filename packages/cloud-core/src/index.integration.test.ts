@@ -300,6 +300,80 @@ it("prevents duplicate scheduled occurrences across scheduler instances", async 
 	expect(jobs.rowCount).toBe(1);
 });
 
+it("matches capabilities and enforces scoped job credentials, retries and runner revocation", async () => {
+	const context = await foundation(randomUUID().slice(0, 8));
+	const first = await service.createRun(context.principal, {
+		organizationId: context.organizationId,
+		repositoryId: context.repositoryId,
+		benchmarkVersionId: context.benchmark.versionId,
+		idempotencyKey: randomUUID(),
+	});
+	await database.query(
+		"UPDATE jobs SET requirements=$2,priority=100 WHERE id=$1",
+		[first.jobId, { platform: "linux", sandbox: "docker" }],
+	);
+	const registration = await service.registerRunner(
+		context.principal,
+		context.organizationId,
+		"capability-runner",
+		{ platform: "linux", sandbox: "local" },
+		"1",
+	);
+	const runner = (await service.authenticateRunner(
+		registration.token,
+	)) as Extract<Principal, { type: "RUNNER" }>;
+	expect(await service.claimJob(runner)).toBeNull();
+	await service.heartbeat(runner, { platform: "linux", sandbox: "docker" });
+	const claim = await service.claimJob(runner, 86_400_000);
+	expect(claim?.id).toBe(first.jobId);
+	expect(
+		await service.authenticateJobCredential(
+			claim?.credential ?? "",
+			first.jobId,
+			"result:write",
+		),
+	).toEqual(runner);
+	await expect(
+		service.authenticateJobCredential(
+			claim?.credential ?? "",
+			randomUUID(),
+			"result:write",
+		),
+	).rejects.toThrow("invalid or lacks scope");
+	await service.failJob(runner, first.jobId, "TRANSIENT", "retry", true);
+	expect(
+		(
+			await database.query<{ state: string }>(
+				"SELECT state FROM jobs WHERE id=$1",
+				[first.jobId],
+			)
+		).rows[0]?.state,
+	).toBe("QUEUED");
+	clock = new Date(clock.getTime() + 3_000);
+	await service.claimJob(runner);
+	await service.failJob(runner, first.jobId, "FATAL", "safe diagnostic", false);
+	const dead = await database.query<{
+		state: string;
+		attempt_count: number;
+		final_error_message: string;
+	}>("SELECT state,attempt_count,final_error_message FROM jobs WHERE id=$1", [
+		first.jobId,
+	]);
+	expect(dead.rows[0]).toMatchObject({
+		state: "DEAD_LETTER",
+		attempt_count: 2,
+		final_error_message: "safe diagnostic",
+	});
+	await service.revokeRunner(
+		context.principal,
+		context.organizationId,
+		registration.id,
+	);
+	await expect(service.authenticateRunner(registration.token)).rejects.toThrow(
+		"invalid",
+	);
+});
+
 it("authorizes artifact allocation, checksum finalization and tenant-scoped reads", async () => {
 	const context = await foundation(randomUUID().slice(0, 8));
 	const outsider = await foundation(randomUUID().slice(0, 8));

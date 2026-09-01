@@ -998,9 +998,19 @@ export class CloudService {
 			const job =
 				result.rows[0] ?? fail("AUTH_UNAVAILABLE", "Job lease is unavailable.");
 			const terminal = !retryable || job.attempt_count >= job.max_attempts;
+			const availableAt = new Date(
+				this.now().getTime() + Math.min(300, 2 ** job.attempt_count) * 1_000,
+			).toISOString();
 			await client.query(
-				"UPDATE jobs SET state=$2,lease_owner=NULL,lease_expires_at=NULL,available_at=CASE WHEN $2='QUEUED' THEN now()+(least(300,2^attempt_count)*interval '1 second') ELSE available_at END,final_error_code=$3,final_error_message=$4,completed_at=CASE WHEN $2='DEAD_LETTER' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1",
-				[jobId, terminal ? "DEAD_LETTER" : "QUEUED", code, safeMessage],
+				"UPDATE jobs SET state=$2,lease_owner=NULL,lease_expires_at=NULL,available_at=CASE WHEN $2='QUEUED' THEN $5::timestamptz ELSE available_at END,final_error_code=$3,final_error_message=$4,completed_at=CASE WHEN $2='DEAD_LETTER' THEN $6::timestamptz ELSE NULL END,updated_at=$6::timestamptz WHERE id=$1",
+				[
+					jobId,
+					terminal ? "DEAD_LETTER" : "QUEUED",
+					code,
+					safeMessage,
+					availableAt,
+					this.now().toISOString(),
+				],
 			);
 		});
 	}
