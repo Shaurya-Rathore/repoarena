@@ -230,6 +230,27 @@ importers:
         specifier: 8.11.10
         version: 8.11.10
 
+  packages/cloud-product:
+    dependencies:
+      '@repoarena/cloud-api':
+        specifier: workspace:*
+        version: link:../cloud-api
+      '@repoarena/cloud-core':
+        specifier: workspace:*
+        version: link:../cloud-core
+      '@repoarena/cloud-db':
+        specifier: workspace:*
+        version: link:../cloud-db
+      '@repoarena/github-integration':
+        specifier: workspace:*
+        version: link:../github-integration
+      '@repoarena/object-storage':
+        specifier: workspace:*
+        version: link:../object-storage
+      '@repoarena/public-publishing':
+        specifier: workspace:*
+        version: link:../public-publishing
+
   packages/cloud-worker:
     dependencies:
       '@repoarena/cloud-core':
