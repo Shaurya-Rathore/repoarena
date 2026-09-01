@@ -18,9 +18,7 @@ import { z } from "zod";
 
 export interface OAuthProvider {
 	authorizationUrl(state: string): string;
-	exchange(
-		code: string,
-	): Promise<{
+	exchange(code: string): Promise<{
 		provider: string;
 		subject: string;
 		displayName: string;

@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeAll, expect, it } from "vitest";
 import { createDatabase, migrate, resetTestDatabase } from "./index.js";
 
@@ -65,5 +68,33 @@ it("rolls back failed transactions", async () => {
 it("serializes concurrent migration startup with an advisory lock", async () => {
 	await Promise.all([migrate(database), migrate(database)]);
 	const rows = await database.query("SELECT version FROM schema_migrations");
-	expect(rows.rowCount).toBe(1);
+	expect(rows.rowCount).toBe(2);
+});
+
+it("migrates a supported v1 fixture forward without losing data", async () => {
+	await resetTestDatabase(database, testUrl);
+	const directory = await mkdtemp(join(tmpdir(), "repoarena-migrations-v1-"));
+	try {
+		const first = await readFile(
+			new URL("../migrations/0001_cloud_core.sql", import.meta.url),
+			"utf8",
+		);
+		await writeFile(join(directory, "0001_cloud_core.sql"), first);
+		await migrate(database, directory);
+		await database.query(
+			"INSERT INTO users(id,provider,provider_subject,display_name) VALUES($1,'fixture','preserved','Preserved')",
+			[randomUUID()],
+		);
+		await migrate(database);
+		const preserved = await database.query(
+			"SELECT display_name FROM users WHERE provider_subject='preserved'",
+		);
+		const column = await database.query(
+			"SELECT 1 FROM information_schema.columns WHERE table_name='artifacts' AND column_name='published_at'",
+		);
+		expect(preserved.rows[0]).toMatchObject({ display_name: "Preserved" });
+		expect(column.rowCount).toBe(1);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
 });

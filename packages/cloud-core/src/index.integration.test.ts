@@ -109,12 +109,66 @@ it("enforces organization isolation, plans, public task projection, sessions and
 	await expect(
 		service.authenticateApiKey(key.key, "API_KEY_MANAGE"),
 	).rejects.toThrow("lacks scope");
-	await database.query("UPDATE api_keys SET revoked_at=now() WHERE id=$1", [
-		key.id,
-	]);
+	await service.revokeApiKey(left.principal, left.organizationId, key.id);
 	await expect(service.authenticateApiKey(key.key)).rejects.toThrow(
 		"API key is invalid",
 	);
+});
+
+it("applies current entitlements and protects membership ownership", async () => {
+	const owner = await service.createUser({
+		provider: "mock",
+		subject: randomUUID(),
+		displayName: "Owner",
+	});
+	const actor: Principal = { type: "USER", userId: owner };
+	const organizationId = await service.createOrganization(
+		owner,
+		`community-${randomUUID().slice(0, 8)}`,
+		"Community",
+	);
+	await expect(
+		service.createRepository(actor, {
+			organizationId,
+			provider: "manual",
+			owner: "o",
+			name: "private",
+			defaultBranch: "main",
+			visibility: "PRIVATE",
+		}),
+	).rejects.toThrow("does not allow private");
+	const member = await service.createUser({
+		provider: "mock",
+		subject: randomUUID(),
+		displayName: "Member",
+	});
+	await expect(
+		service.setMembership(actor, organizationId, member, "VIEWER"),
+	).rejects.toThrow("Member entitlement limit");
+	await service.setPlan(actor, organizationId, "PRO");
+	await service.createRepository(actor, {
+		organizationId,
+		provider: "manual",
+		owner: "o",
+		name: "private-pro",
+		defaultBranch: "main",
+		visibility: "PRIVATE",
+	});
+	await service.setPlan(actor, organizationId, "TEAM");
+	await service.setMembership(actor, organizationId, member, "VIEWER");
+	expect(await service.listMemberships(actor, organizationId)).toHaveLength(2);
+	await expect(
+		service.setMembership(actor, organizationId, owner, "ADMIN"),
+	).rejects.toThrow("retain an active owner");
+	const bucket = `test:${randomUUID()}`;
+	expect(await service.consumeRateLimit(bucket, 1, 60_000)).toEqual({
+		allowed: true,
+		remaining: 0,
+	});
+	expect(await service.consumeRateLimit(bucket, 1, 60_000)).toEqual({
+		allowed: false,
+		remaining: 0,
+	});
 });
 
 it("creates a run and job atomically and preserves idempotency", async () => {
@@ -194,6 +248,21 @@ it("claims jobs exactly once across connections, reclaims expired leases and sub
 		status: "COMPLETED",
 		attempts: [],
 	};
+	const usageId = await service.recordUsage(other, {
+		runId: first.runId,
+		type: "MODEL_TOKENS",
+		provider: "fake",
+		model: "deterministic",
+		quantity: { input_tokens: 10 },
+		cost: { micros: 20 },
+	});
+	expect(
+		await service.recordUsage(other, {
+			runId: first.runId,
+			type: "MODEL_TOKENS",
+			quantity: { input_tokens: 999 },
+		}),
+	).toBe(usageId);
 	expect(await service.submitResult(other, first.jobId, canonical)).toEqual({
 		replay: false,
 	});

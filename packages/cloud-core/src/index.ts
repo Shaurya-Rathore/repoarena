@@ -205,6 +205,71 @@ export class CloudService {
 		).rows;
 	}
 
+	async listMemberships(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "ORG_READ");
+		return (
+			await this.database.query(
+				"SELECT m.user_id,m.role,m.state,m.created_at,m.updated_at,u.display_name,u.email FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.organization_id=$1 ORDER BY m.created_at,m.user_id",
+				[organizationId],
+			)
+		).rows;
+	}
+
+	async setMembership(
+		actor: Principal,
+		organizationId: string,
+		userId: string,
+		role: Role,
+		state: "ACTIVE" | "REVOKED" = "ACTIVE",
+	): Promise<void> {
+		await this.authorize(actor, organizationId, "MEMBER_MANAGE");
+		const limits = await this.entitlements(organizationId);
+		await this.database.transaction(async (client) => {
+			const members = await client.query<{
+				user_id: string;
+				role: Role;
+				state: string;
+			}>(
+				"SELECT user_id,role,state FROM memberships WHERE organization_id=$1 FOR UPDATE",
+				[organizationId],
+			);
+			const current = members.rows.find((item) => item.user_id === userId);
+			if (
+				current?.role === "OWNER" &&
+				current.state === "ACTIVE" &&
+				(role !== "OWNER" || state !== "ACTIVE") &&
+				members.rows.filter(
+					(item) => item.role === "OWNER" && item.state === "ACTIVE",
+				).length === 1
+			)
+				fail("CONFLICT", "Organization must retain an active owner.");
+			if (
+				(!current || current.state !== "ACTIVE") &&
+				state === "ACTIVE" &&
+				members.rows.filter((item) => item.state === "ACTIVE").length >=
+					limits.max_members
+			)
+				fail("AUTH_UNAVAILABLE", "Member entitlement limit reached.");
+			await client.query(
+				"INSERT INTO memberships(organization_id,user_id,role,state) VALUES($1,$2,$3,$4) ON CONFLICT(organization_id,user_id) DO UPDATE SET role=excluded.role,state=excluded.state,updated_at=now()",
+				[organizationId, userId, role, state],
+			);
+			await this.audit(
+				client,
+				organizationId,
+				actor.type,
+				actorId(actor),
+				"membership.changed",
+				"user",
+				userId,
+				{ role, state },
+			);
+		});
+	}
+
 	async getRun(
 		actor: Principal,
 		organizationId: string,
@@ -219,14 +284,16 @@ export class CloudService {
 	}
 
 	async entitlements(organizationId: string): Promise<Entitlements> {
-		const result = await this.database.query<{ entitlements: Entitlements }>(
-			"SELECT p.entitlements FROM organizations o JOIN plans p ON p.id=o.plan_id WHERE o.id=$1 AND o.state='ACTIVE'",
+		const result = await this.database.query<{
+			entitlements: Entitlements;
+			overrides: Record<string, unknown>;
+		}>(
+			"SELECT p.entitlements,coalesce((SELECT jsonb_object_agg(entitlement,value) FROM organization_entitlement_overrides WHERE organization_id=o.id),'{}') AS overrides FROM organizations o JOIN plans p ON p.id=o.plan_id WHERE o.id=$1 AND o.state='ACTIVE'",
 			[organizationId],
 		);
-		return (
-			result.rows[0]?.entitlements ??
-			fail("CONFIG_INVALID", "Organization is unavailable.")
-		);
+		const row =
+			result.rows[0] ?? fail("CONFIG_INVALID", "Organization is unavailable.");
+		return { ...row.entitlements, ...row.overrides } as Entitlements;
 	}
 
 	async setPlan(
@@ -525,6 +592,31 @@ export class CloudService {
 		);
 	}
 
+	async revokeApiKey(
+		actor: Principal,
+		organizationId: string,
+		apiKeyId: string,
+	): Promise<void> {
+		await this.authorize(actor, organizationId, "API_KEY_MANAGE");
+		await this.database.transaction(async (client) => {
+			const result = await client.query(
+				"UPDATE api_keys SET revoked_at=now() WHERE id=$1 AND organization_id=$2 AND revoked_at IS NULL",
+				[apiKeyId, organizationId],
+			);
+			if (!result.rowCount) fail("NOT_FOUND", "API key not found.");
+			await this.audit(
+				client,
+				organizationId,
+				actor.type,
+				actorId(actor),
+				"api_key.revoked",
+				"api_key",
+				apiKeyId,
+				{},
+			);
+		});
+	}
+
 	async createApiKey(
 		actor: Principal,
 		organizationId: string,
@@ -661,6 +753,35 @@ export class CloudService {
 			runnerId: row.id,
 			organizationId: row.organization_id,
 		};
+	}
+
+	async revokeRunner(
+		actor: Principal,
+		organizationId: string,
+		runnerId: string,
+	): Promise<void> {
+		await this.authorize(actor, organizationId, "RUNNER_MANAGE");
+		await this.database.transaction(async (client) => {
+			const result = await client.query(
+				"UPDATE runners SET state='REVOKED',revoked_at=now(),current_job_id=NULL WHERE id=$1 AND organization_id=$2 AND state='ACTIVE'",
+				[runnerId, organizationId],
+			);
+			if (!result.rowCount) fail("NOT_FOUND", "Runner not found.");
+			await client.query(
+				"UPDATE jobs SET state='QUEUED',lease_owner=NULL,lease_expires_at=NULL,available_at=now(),updated_at=now() WHERE lease_owner=$1 AND state='LEASED'",
+				[runnerId],
+			);
+			await this.audit(
+				client,
+				organizationId,
+				actor.type,
+				actorId(actor),
+				"runner.revoked",
+				"runner",
+				runnerId,
+				{},
+			);
+		});
 	}
 
 	async heartbeat(
@@ -924,6 +1045,96 @@ export class CloudService {
 				);
 			}
 			return due.rowCount ?? 0;
+		});
+	}
+
+	async cancelRun(
+		actor: Principal,
+		organizationId: string,
+		runId: string,
+	): Promise<void> {
+		await this.authorize(actor, organizationId, "BENCHMARK_RUN");
+		await this.database.transaction(async (client) => {
+			const result = await client.query(
+				"UPDATE benchmark_runs SET state='CANCELLED',completed_at=now(),updated_at=now() WHERE id=$1 AND organization_id=$2 AND state IN ('QUEUED','RUNNING')",
+				[runId, organizationId],
+			);
+			if (!result.rowCount) fail("CONFLICT", "Run cannot be cancelled.");
+			await client.query(
+				"UPDATE jobs SET state='CANCELLED',lease_owner=NULL,lease_expires_at=NULL,completed_at=now(),updated_at=now() WHERE benchmark_run_id=$1 AND state IN ('QUEUED','LEASED')",
+				[runId],
+			);
+			await this.audit(
+				client,
+				organizationId,
+				actor.type,
+				actorId(actor),
+				"run.cancelled",
+				"benchmark_run",
+				runId,
+				{},
+			);
+		});
+	}
+
+	async recordUsage(
+		runner: Extract<Principal, { type: "RUNNER" }>,
+		input: {
+			runId: string;
+			attemptId?: string;
+			type: string;
+			provider?: string;
+			model?: string;
+			quantity: unknown;
+			cost?: unknown;
+			billingOwner?: "USER_BYOK" | "ORGANIZATION_BYOK" | "REPOARENA_SPONSORED";
+		},
+	): Promise<string> {
+		const owned = await this.database.query(
+			"SELECT 1 FROM benchmark_runs WHERE id=$1 AND organization_id=$2 AND runner_id=$3",
+			[input.runId, runner.organizationId, runner.runnerId],
+		);
+		if (!owned.rowCount)
+			fail("AUTH_UNAVAILABLE", "Runner does not own this run.");
+		const id = randomUUID();
+		const result = await this.database.query<{ id: string }>(
+			"INSERT INTO usage_records(id,organization_id,benchmark_run_id,attempt_id,usage_type,provider,model,quantity,cost_snapshot,billing_owner) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(benchmark_run_id,attempt_id,usage_type) DO UPDATE SET quantity=usage_records.quantity RETURNING id",
+			[
+				id,
+				runner.organizationId,
+				input.runId,
+				input.attemptId ?? null,
+				input.type,
+				input.provider ?? null,
+				input.model ?? null,
+				input.quantity,
+				input.cost ?? null,
+				input.billingOwner ?? "ORGANIZATION_BYOK",
+			],
+		);
+		return result.rows[0]?.id ?? id;
+	}
+
+	async consumeRateLimit(
+		bucketKey: string,
+		limit: number,
+		windowMs: number,
+	): Promise<{ allowed: boolean; remaining: number }> {
+		if (
+			!Number.isInteger(limit) ||
+			limit < 1 ||
+			!Number.isInteger(windowMs) ||
+			windowMs < 1
+		)
+			fail("CONFIG_INVALID", "Rate limit policy is invalid.");
+		const boundary = new Date(this.now().getTime() - windowMs).toISOString();
+		return this.database.transaction(async (client) => {
+			const result = await client.query<{ count: number }>(
+				"INSERT INTO rate_limit_buckets(bucket_key,window_started_at,count) VALUES($1,$2,1) ON CONFLICT(bucket_key) DO UPDATE SET window_started_at=CASE WHEN rate_limit_buckets.window_started_at<=$3 THEN $2 ELSE rate_limit_buckets.window_started_at END,count=CASE WHEN rate_limit_buckets.window_started_at<=$3 THEN 1 ELSE rate_limit_buckets.count+1 END,updated_at=$2 RETURNING count",
+				[bucketKey, this.now().toISOString(), boundary],
+			);
+			const count = result.rows[0]?.count ?? limit + 1;
+			return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
 		});
 	}
 
