@@ -1,10 +1,13 @@
 # RepoArena 1.0 implementation status
 
-Updated: 2026-08-31. A state of `VERIFIED` means the listed command passed in
+Updated: 2026-09-01. A state of `VERIFIED` means the listed command passed in
 this workspace; all other states are deliberately conservative.
 
 **Execution engine: VERIFIED.** Detailed evidence is recorded in
 `docs/development/execution-engine-final-audit.md`.
+
+**Cloud core: VERIFIED.** Detailed PostgreSQL, API, queue, runner, storage, and
+security evidence is recorded in `docs/development/cloud-core-final-audit.md`.
 
 | Subsystem | State | Files / tests | Verification | Current result / remaining work |
 | --- | --- | --- | --- | --- |
@@ -23,17 +26,17 @@ this workspace; all other states are deliberately conservative.
 | Repository readiness | VERIFIED | `packages/readiness`, CLI doctor, local-product history/UI; deterministic excellent/adversarial fixtures | readiness, CLI and local-product suites; `pnpm verify` | Eight weighted categories emit stable explainable findings across setup, tests, docs, environment, dependencies, fixtures, complexity, and agent guidance; atomic CLI/UI history is consistent. |
 | Optimization engine | VERIFIED | optimizer, built CLI connected trial fixture, local-product candidate UI | optimizer, CLI and local-product suites; `pnpm verify` | Capability-constrained grid search executes real benchmark trials, persists history, compares baseline/Pareto candidates, enforces budgets/cache/cancellation, retains holdout provenance, and exports profiles. |
 | Local product UI | VERIFIED | localhost server/API/assets plus built CLI server E2E | local-product and CLI suites; explicit built-product E2E; `pnpm verify` | `repoarena ui` launches the localhost-only typed API/application with onboarding, tasks, bounded history, run/attempt/diff evidence, comparisons, readiness, optimizer and configuration flows. |
-| Cloud database and migrations | IN_PROGRESS | `packages/cloud-db`, forward-only SQL migration, real PostgreSQL fixtures | cloud-db unit/integration suites | PostgreSQL 18 fresh migration, constraints, rollback and advisory migration locking pass against the guarded `repoarena_test` database; cloud services remain. |
-| Cloud API and API client | NOT_STARTED | — | — | Implement validated REST/SSE APIs, pagination, idempotency, audit and OpenAPI. |
-| Authentication, organizations and RBAC | NOT_STARTED | — | — | Implement GitHub OAuth, sessions, memberships and tenant isolation tests. |
-| Jobs, worker and schedules | NOT_STARTED | — | — | Implement durable PostgreSQL queue, lease/heartbeat/retry/cron and worker recovery. |
-| Runner registration and hosted execution | NOT_STARTED | — | — | Implement registration credentials, remote protocol, provider abstraction and contracts. |
-| Object storage and artifacts | IN_PROGRESS | `packages/artifacts`, `packages/runner-core`, `packages/run-store`; artifact containment/integration tests | `pnpm --filter @repoarena/artifacts test:unit && pnpm --filter @repoarena/artifacts typecheck`; runner unit suite | Safe local manifest collection rejects traversal/symlinks and enforces limits; allowlisted manifests now flow through isolated attempts into persisted results. Add persistent object storage and retention. |
+| Cloud database and migrations | VERIFIED | `packages/cloud-db`, migrations 0001–0002, guarded PostgreSQL fixtures | cloud-db unit/integration; `pnpm db:migrate` | PostgreSQL 18 fresh/upgrade migration, constraints, rollback and advisory locking pass against `repoarena_test`. |
+| Cloud API and API client | VERIFIED | `packages/cloud-api`, `packages/cloud-api-client` | API/client unit, typecheck and real-Postgres E2E | Versioned validated API, safe errors, pagination, CSRF, idempotency, OpenAPI contract and typed client pass. |
+| Authentication, organizations and RBAC | VERIFIED | cloud-core sessions, API keys, organizations, memberships, entitlements | cloud-core/API real-Postgres security suites | Opaque hashed tokens, revocation, centralized roles, current entitlements and cross-tenant denial pass. |
+| Jobs, worker and schedules | VERIFIED | jobs/schedules schema, `packages/cloud-worker`, cloud-core queue services | concurrent cloud-core PostgreSQL suite | SKIP LOCKED claims, leases, reclaim, retry/dead-letter and occurrence-idempotent scheduling pass. |
+| Runner registration and hosted execution | VERIFIED | cloud-core runner protocol and ephemeral job credentials | runner capability/exclusivity/result-replay integration | Registration, revocation, heartbeat, staleness, compatible claim and safe idempotent result submission pass. |
+| Object storage and artifacts | VERIFIED | `packages/object-storage`, cloud `ArtifactService`, artifact metadata/retention schema | object-storage contract and cloud-core artifact integration | Server-generated tenant keys, checksum/size finalization, scoped reads and evaluator-private denial pass. |
 | GitHub App and Actions | NOT_STARTED | — | — | Implement verified idempotent webhooks, sync, checks, action and regression workflow. |
 | Public publishing, pages, badges and leaderboard | NOT_STARTED | — | — | Implement signed/redacted manifests, aggregation, public routes, badge and cache policy. |
-| Billing and entitlements | NOT_STARTED | — | — | Implement Stripe provider, webhooks, checkout/portal, plan limits and mock contracts. |
+| Billing and entitlements | IN_PROGRESS | cloud plan/override/usage/BYOK foundation | cloud-core entitlement and usage integration | Central Community/PRO/TEAM/Enterprise entitlements and metering pass; Stripe is explicitly deferred. |
 | Cloud frontend | NOT_STARTED | — | — | Implement Next.js product routes, API integration, accessibility and E2E tests. |
-| Observability, security and operations | NOT_STARTED | — | — | Implement logs, traces, health, rate limits, secret handling, threat tests and runbooks. |
+| Observability, security and operations | IN_PROGRESS | cloud health/readiness, safe logger, metrics, audit, rate limits, operator scripts | cloud API/core integration | Cloud-core observability/security foundation is verified; later deployment-wide tracing/backups remain outside this cluster. |
 | Deployment, CI and release | IN_PROGRESS | Compose only | `pnpm verify` | Local compose exists. Add images, deploy/IaC, CI, release validation, backups and docs. |
 | Documentation | IN_PROGRESS | README, governance | `pnpm verify` | Basic quickstart exists. Add complete user, operations and architecture documentation. |
 

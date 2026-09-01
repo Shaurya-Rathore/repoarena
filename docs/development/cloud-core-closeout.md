@@ -1,18 +1,19 @@
 # Cloud core closeout
 
-Updated: 2026-09-01. This ledger remains `IN_PROGRESS` until connected real
-PostgreSQL cloud flows pass.
+Updated: 2026-09-01. The cloud core is `VERIFIED` against PostgreSQL 18.6.
 
 | Area | Status |
 | --- | --- |
-| PostgreSQL pool, migrations, safety validation, constraints and rollback | VERIFIED |
-| Users, organizations, memberships and RBAC services | IN_PROGRESS |
-| Repository, task, benchmark and canonical run persistence | IN_PROGRESS |
-| Authentication, sessions and API keys | IN_PROGRESS |
-| Cloud API, validation, pagination, CSRF and idempotency | IN_PROGRESS |
-| Object storage and artifact authorization | IN_PROGRESS |
-| Durable jobs, leases, retry/dead-letter and scheduler | IN_PROGRESS |
-| Runner registration, heartbeat, claim and result submission | IN_PROGRESS |
-| Usage, entitlements, audit, health and metrics | IN_PROGRESS |
-| Connected PostgreSQL security/concurrency/cloud E2E | IN_PROGRESS |
-| Documentation, skills and final audit | IN_PROGRESS |
+| PostgreSQL pool, fresh/upgrade migrations, locking, safety, constraints and rollback | VERIFIED |
+| Users, organizations, memberships, centralized RBAC and live entitlements | VERIFIED |
+| Repository, public/private task, benchmark/version and canonical run persistence | VERIFIED |
+| OAuth abstraction, opaque sessions, CSRF, API keys and revocation | VERIFIED |
+| Versioned API, runtime validation, pagination, idempotency, safe errors and typed client | VERIFIED |
+| S3-compatible/filesystem object providers, opaque keys and artifact authorization | VERIFIED |
+| Durable jobs, leases, recovery, retry/dead-letter and concurrent scheduler | VERIFIED |
+| Runner registration, heartbeat, capability claim, job credentials and result replay | VERIFIED |
+| Usage/BYOK accounting, budgets, plans, audit, rate limits, health and metrics | VERIFIED |
+| Connected tenant/security/concurrency/cloud flows on real PostgreSQL | VERIFIED |
+| Operator scripts, documentation, skills and audit | VERIFIED |
+| Live GitHub OAuth credential exchange | IMPLEMENTED_AND_CONTRACT_VERIFIED_LIVE_CREDENTIALS_UNAVAILABLE |
+| Live external S3/MinIO credentials | IMPLEMENTED_AND_CONTRACT_VERIFIED_LIVE_CREDENTIALS_UNAVAILABLE |

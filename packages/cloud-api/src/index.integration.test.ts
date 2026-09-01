@@ -62,6 +62,9 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 			?.split(";")[0]
 			?.split("=")[1];
 		const cookie = cookies.map((item) => item.split(";")[0]).join("; ");
+		const authenticatedUserId = (
+			(await callback.json()) as { data: { user_id: string } }
+		).data.user_id;
 		expect(session).toBeDefined();
 		expect(csrf).toBeDefined();
 		const unauthenticated = await fetch(`${origin}/api/v1/organizations`);
@@ -261,6 +264,31 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 			{ headers: { cookie } },
 		);
 		expect(invalidCursor.status).toBe(400);
+		const outsiderId = await service.createUser({
+			provider: "mock",
+			subject: `outsider-${randomUUID()}`,
+			displayName: "Outsider",
+		});
+		const outsider = { type: "USER" as const, userId: outsiderId };
+		const outsiderOrganizationId = await service.createOrganization(
+			outsiderId,
+			`outside-${randomUUID().slice(0, 8)}`,
+			"Outside",
+		);
+		await service.setPlan(outsider, outsiderOrganizationId, "TEAM");
+		const outsiderKey = await service.createApiKey(
+			outsider,
+			outsiderOrganizationId,
+			outsiderId,
+			"cross-tenant",
+			["REPOSITORY_READ"],
+		);
+		const crossTenant = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/repositories`,
+			{ headers: { authorization: `Bearer ${outsiderKey.key}` } },
+		);
+		expect(crossTenant.status).toBe(403);
+		expect(authenticatedUserId).not.toBe(outsiderId);
 		const audit = await database.query(
 			"SELECT action,metadata FROM audit_events WHERE organization_id=$1 ORDER BY created_at",
 			[organizationId],
