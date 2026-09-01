@@ -9,6 +9,10 @@ this workspace; all other states are deliberately conservative.
 **Cloud core: VERIFIED.** Detailed PostgreSQL, API, queue, runner, storage, and
 security evidence is recorded in `docs/development/cloud-core-final-audit.md`.
 
+**GitHub integration: VERIFIED.** Detailed App, webhook, Checks, Actions, OIDC,
+PostgreSQL, and security evidence is recorded in
+`docs/development/github-integration-final-audit.md`.
+
 | Subsystem | State | Files / tests | Verification | Current result / remaining work |
 | --- | --- | --- | --- | --- |
 | Foundation and package boundaries | VERIFIED | `package.json`, `tsconfig.base.json`, `packages/core`; core tests | `pnpm verify` | Strict workspace, canonical JSON/hash and typed errors pass. Add package-boundary enforcement and full error catalog. |
@@ -26,13 +30,13 @@ security evidence is recorded in `docs/development/cloud-core-final-audit.md`.
 | Repository readiness | VERIFIED | `packages/readiness`, CLI doctor, local-product history/UI; deterministic excellent/adversarial fixtures | readiness, CLI and local-product suites; `pnpm verify` | Eight weighted categories emit stable explainable findings across setup, tests, docs, environment, dependencies, fixtures, complexity, and agent guidance; atomic CLI/UI history is consistent. |
 | Optimization engine | VERIFIED | optimizer, built CLI connected trial fixture, local-product candidate UI | optimizer, CLI and local-product suites; `pnpm verify` | Capability-constrained grid search executes real benchmark trials, persists history, compares baseline/Pareto candidates, enforces budgets/cache/cancellation, retains holdout provenance, and exports profiles. |
 | Local product UI | VERIFIED | localhost server/API/assets plus built CLI server E2E | local-product and CLI suites; explicit built-product E2E; `pnpm verify` | `repoarena ui` launches the localhost-only typed API/application with onboarding, tasks, bounded history, run/attempt/diff evidence, comparisons, readiness, optimizer and configuration flows. |
-| Cloud database and migrations | VERIFIED | `packages/cloud-db`, migrations 0001–0002, guarded PostgreSQL fixtures | cloud-db unit/integration; `pnpm db:migrate` | PostgreSQL 18 fresh/upgrade migration, constraints, rollback and advisory locking pass against `repoarena_test`. |
+| Cloud database and migrations | VERIFIED | `packages/cloud-db`, migrations 0001–0003, guarded PostgreSQL fixtures | cloud-db unit/integration; `pnpm db:migrate` | PostgreSQL 18 fresh/upgrade migration, constraints, rollback and advisory locking pass against `repoarena_test`. |
 | Cloud API and API client | VERIFIED | `packages/cloud-api`, `packages/cloud-api-client` | API/client unit, typecheck and real-Postgres E2E | Versioned validated API, safe errors, pagination, CSRF, idempotency, OpenAPI contract and typed client pass. |
 | Authentication, organizations and RBAC | VERIFIED | cloud-core sessions, API keys, organizations, memberships, entitlements | cloud-core/API real-Postgres security suites | Opaque hashed tokens, revocation, centralized roles, current entitlements and cross-tenant denial pass. |
 | Jobs, worker and schedules | VERIFIED | jobs/schedules schema, `packages/cloud-worker`, cloud-core queue services | concurrent cloud-core PostgreSQL suite | SKIP LOCKED claims, leases, reclaim, retry/dead-letter and occurrence-idempotent scheduling pass. |
 | Runner registration and hosted execution | VERIFIED | cloud-core runner protocol and ephemeral job credentials | runner capability/exclusivity/result-replay integration | Registration, revocation, heartbeat, staleness, compatible claim and safe idempotent result submission pass. |
 | Object storage and artifacts | VERIFIED | `packages/object-storage`, cloud `ArtifactService`, artifact metadata/retention schema | object-storage contract and cloud-core artifact integration | Server-generated tenant keys, checksum/size finalization, scoped reads and evaluator-private denial pass. |
-| GitHub App and Actions | NOT_STARTED | — | — | Implement verified idempotent webhooks, sync, checks, action and regression workflow. |
+| GitHub App and Actions | VERIFIED | GitHub provider/integration, cloud API, Action, migration 0003, connected tests | focused GitHub/Action/API suites; real PostgreSQL; `pnpm verify` | App JWT/token lifecycle, tenant-safe installation sync, signed durable webhooks, trigger policy, Checks/comments, bundled Action, OIDC, fork/budget/security boundaries pass. |
 | Public publishing, pages, badges and leaderboard | NOT_STARTED | — | — | Implement signed/redacted manifests, aggregation, public routes, badge and cache policy. |
 | Billing and entitlements | IN_PROGRESS | cloud plan/override/usage/BYOK foundation | cloud-core entitlement and usage integration | Central Community/PRO/TEAM/Enterprise entitlements and metering pass; Stripe is explicitly deferred. |
 | Cloud frontend | NOT_STARTED | — | — | Implement Next.js product routes, API integration, accessibility and E2E tests. |
