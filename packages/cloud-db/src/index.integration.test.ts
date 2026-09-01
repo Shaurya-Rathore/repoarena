@@ -26,6 +26,8 @@ it("applies a fresh migration and enforces tenant constraints", async () => {
 			"jobs",
 			"runners",
 			"task_private_versions",
+			"github_installations",
+			"github_webhook_deliveries",
 		]),
 	);
 	const user = randomUUID();
@@ -68,7 +70,7 @@ it("rolls back failed transactions", async () => {
 it("serializes concurrent migration startup with an advisory lock", async () => {
 	await Promise.all([migrate(database), migrate(database)]);
 	const rows = await database.query("SELECT version FROM schema_migrations");
-	expect(rows.rowCount).toBe(2);
+	expect(rows.rowCount).toBe(3);
 });
 
 it("migrates a supported v1 fixture forward without losing data", async () => {
@@ -92,8 +94,12 @@ it("migrates a supported v1 fixture forward without losing data", async () => {
 		const column = await database.query(
 			"SELECT 1 FROM information_schema.columns WHERE table_name='artifacts' AND column_name='published_at'",
 		);
+		const metricColumn = await database.query(
+			"SELECT 1 FROM information_schema.columns WHERE table_name='metric_events' AND column_name='recorded_at'",
+		);
 		expect(preserved.rows[0]).toMatchObject({ display_name: "Preserved" });
 		expect(column.rowCount).toBe(1);
+		expect(metricColumn.rowCount).toBe(1);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

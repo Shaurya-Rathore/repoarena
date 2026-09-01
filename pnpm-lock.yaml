@@ -243,6 +243,8 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/github-provider: {}
+
   packages/integrity:
     dependencies:
       '@repoarena/git':
