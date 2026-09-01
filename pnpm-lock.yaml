@@ -186,6 +186,9 @@ importers:
       '@repoarena/object-storage':
         specifier: workspace:*
         version: link:../object-storage
+      '@repoarena/public-publishing':
+        specifier: workspace:*
+        version: link:../public-publishing
       zod:
         specifier: 3.24.2
         version: 3.24.2

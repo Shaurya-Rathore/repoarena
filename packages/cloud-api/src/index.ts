@@ -19,6 +19,7 @@ import type {
 	TriggerPolicy,
 } from "@repoarena/github-integration";
 import type { ObjectStorage } from "@repoarena/object-storage";
+import { PublishingService } from "@repoarena/public-publishing";
 import { z } from "zod";
 
 export const cloudApiContract = Object.freeze({
@@ -49,6 +50,13 @@ export const cloudApiContract = Object.freeze({
 			{
 				post: {},
 			},
+		"/api/v1/organizations/{organizationId}/runs/{runId}/publish": { post: {} },
+		"/api/v1/organizations/{organizationId}/publications/{publicId}": {
+			delete: {},
+		},
+		"/api/v1/public/runs/{publicId}": { get: {} },
+		"/api/v1/public/leaderboard": { get: {} },
+		"/api/v1/public/badges/{publicId}.svg": { get: {} },
 	},
 });
 
@@ -255,6 +263,12 @@ const bodySchemas = {
 			audience: z.string().min(1).max(200),
 		})
 		.strict(),
+	publish: z
+		.object({
+			confirm_private: z.boolean().optional(),
+			methodology_version: z.string().min(1).max(100).optional(),
+		})
+		.strict(),
 	result: z.object({ result: z.unknown() }).strict(),
 };
 const parseCookies = (request: IncomingMessage) =>
@@ -308,7 +322,8 @@ const json = (
 ) => {
 	response.statusCode = status;
 	response.setHeader("content-type", "application/json; charset=utf-8");
-	response.setHeader("cache-control", "no-store");
+	if (!response.hasHeader("cache-control"))
+		response.setHeader("cache-control", "no-store");
 	response.setHeader("x-request-id", requestId);
 	response.end(`${JSON.stringify(value)}\n`);
 };
@@ -324,6 +339,11 @@ export function createCloudApi(options: {
 	githubActions?: GitHubActionsAuth;
 }) {
 	const cloud = new CloudService(options.database, options.now);
+	const publishing = new PublishingService(
+		options.database,
+		cloud,
+		options.now,
+	);
 	const artifacts = new ArtifactService(
 		options.database,
 		options.storage,
@@ -366,6 +386,50 @@ export function createCloudApi(options: {
 				return json(response, 200, { status: "ok" }, requestId);
 			if (request.method === "GET" && path === "/api/v1/openapi.json")
 				return json(response, 200, cloudApiContract, requestId);
+			if (request.method === "GET" && path === "/api/v1/public/leaderboard") {
+				response.setHeader(
+					"cache-control",
+					"public, max-age=60, stale-while-revalidate=300",
+				);
+				return json(
+					response,
+					200,
+					{
+						data: await publishing.leaderboard(
+							Number(url.searchParams.get("limit") ?? 50),
+						),
+					},
+					requestId,
+				);
+			}
+			const publicRun = path.match(
+				/^\/api\/v1\/public\/runs\/(rap_[A-Za-z0-9_-]+)$/,
+			);
+			if (request.method === "GET" && publicRun?.[1]) {
+				response.setHeader(
+					"cache-control",
+					"public, max-age=60, stale-while-revalidate=300",
+				);
+				return json(
+					response,
+					200,
+					{ data: await publishing.getPublic(publicRun[1]) },
+					requestId,
+				);
+			}
+			const publicBadge = path.match(
+				/^\/api\/v1\/public\/badges\/(rap_[A-Za-z0-9_-]+)\.svg$/,
+			);
+			if (request.method === "GET" && publicBadge?.[1]) {
+				response.statusCode = 200;
+				response.setHeader("content-type", "image/svg+xml; charset=utf-8");
+				response.setHeader(
+					"cache-control",
+					"public, max-age=300, stale-while-revalidate=3600",
+				);
+				response.setHeader("x-request-id", requestId);
+				return response.end(await publishing.badge(publicBadge[1]));
+			}
 			if (request.method === "POST" && path === "/api/v1/github/webhooks") {
 				if (!options.github)
 					throw new RepoArenaError(
@@ -661,6 +725,40 @@ export function createCloudApi(options: {
 			const memberships = path.match(
 				/^\/api\/v1\/organizations\/([^/]+)\/memberships$/,
 			);
+			const publishRun = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/runs\/([^/]+)\/publish$/,
+			);
+			if (publishRun?.[1] && publishRun[2] && request.method === "POST") {
+				const body = bodySchemas.publish.parse(await readBody(request));
+				return json(
+					response,
+					201,
+					{
+						data: await publishing.publish(await authenticate(request, true), {
+							organizationId: uuid.parse(publishRun[1]),
+							runId: uuid.parse(publishRun[2]),
+							...(body.confirm_private === undefined
+								? {}
+								: { confirmPrivate: body.confirm_private }),
+							...(body.methodology_version
+								? { methodologyVersion: body.methodology_version }
+								: {}),
+						}),
+					},
+					requestId,
+				);
+			}
+			const unpublish = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/publications\/(rap_[A-Za-z0-9_-]+)$/,
+			);
+			if (unpublish?.[1] && unpublish[2] && request.method === "DELETE") {
+				await publishing.unpublish(
+					await authenticate(request, true),
+					uuid.parse(unpublish[1]),
+					unpublish[2],
+				);
+				return json(response, 200, { data: { unpublished: true } }, requestId);
+			}
 			if (memberships?.[1] && request.method === "GET")
 				return json(
 					response,

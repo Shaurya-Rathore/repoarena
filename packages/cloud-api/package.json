@@ -16,6 +16,7 @@
 		"@repoarena/core": "workspace:*",
 		"@repoarena/github-integration": "workspace:*",
 		"@repoarena/object-storage": "workspace:*",
+		"@repoarena/public-publishing": "workspace:*",
 		"zod": "3.24.2"
 	}
 }

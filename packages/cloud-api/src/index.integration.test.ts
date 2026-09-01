@@ -292,7 +292,20 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 			data: { id: string; credential: string };
 		};
 		expect(claim.data.id).toBe(run.data.jobId);
-		const safeResult = { schema_version: 1, status: "COMPLETED", solved: 1 };
+		const safeResult = {
+			schema: "repoarena.benchmark-run/v1",
+			state: "COMPLETED",
+			statistics: {
+				task_count: 1,
+				attempt_count: 2,
+				solved_count: 1,
+				success_rate: 0.5,
+				pass_at_k: 0.75,
+				median_duration_ms: 100,
+				total_cost_micros: 50,
+			},
+			agents: [{ id: "fake", model: "deterministic" }],
+		};
 		const resultResponse = await fetch(
 			`${origin}/api/v1/runner/jobs/${claim.data.id}/result`,
 			{
@@ -316,6 +329,36 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 			state: "COMPLETED",
 			canonical_result: safeResult,
 		});
+		const publish = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/runs/${run.data.runId}/publish`,
+			{ method: "POST", headers, body: "{}" },
+		);
+		expect(publish.status).toBe(201);
+		const publicId = ((await publish.json()) as { data: { public_id: string } })
+			.data.public_id;
+		const publicRun = await fetch(`${origin}/api/v1/public/runs/${publicId}`);
+		expect(publicRun.status).toBe(200);
+		expect(publicRun.headers.get("cache-control")).toContain("public");
+		expect(JSON.stringify(await publicRun.json())).not.toContain(
+			"canonical_result",
+		);
+		const leaderboard = await fetch(`${origin}/api/v1/public/leaderboard`);
+		expect(leaderboard.status).toBe(200);
+		expect(
+			((await leaderboard.json()) as { data: { entries: unknown[] } }).data
+				.entries,
+		).toHaveLength(1);
+		const badge = await fetch(`${origin}/api/v1/public/badges/${publicId}.svg`);
+		expect(badge.headers.get("content-type")).toContain("image/svg+xml");
+		expect(await badge.text()).toContain("50% solved");
+		const unpublish = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/publications/${publicId}`,
+			{ method: "DELETE", headers },
+		);
+		expect(unpublish.status).toBe(200);
+		expect(
+			(await fetch(`${origin}/api/v1/public/runs/${publicId}`)).status,
+		).toBe(404);
 		const invalidCursor = await fetch(
 			`${origin}/api/v1/organizations/${organizationId}/runs?cursor=invalid`,
 			{ headers: { cookie } },
