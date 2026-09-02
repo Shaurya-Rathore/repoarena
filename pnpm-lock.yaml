@@ -97,6 +97,23 @@ importers:
         specifier: workspace:*
         version: link:../task-spec
 
+  packages/billing:
+    dependencies:
+      '@repoarena/billing-stripe':
+        specifier: workspace:*
+        version: link:../billing-stripe
+      '@repoarena/cloud-core':
+        specifier: workspace:*
+        version: link:../cloud-core
+      '@repoarena/cloud-db':
+        specifier: workspace:*
+        version: link:../cloud-db
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/billing-stripe: {}
+
   packages/cli:
     dependencies:
       '@repoarena/adapter-claude-code':
@@ -171,6 +188,12 @@ importers:
 
   packages/cloud-api:
     dependencies:
+      '@repoarena/billing':
+        specifier: workspace:*
+        version: link:../billing
+      '@repoarena/billing-stripe':
+        specifier: workspace:*
+        version: link:../billing-stripe
       '@repoarena/cloud-core':
         specifier: workspace:*
         version: link:../cloud-core

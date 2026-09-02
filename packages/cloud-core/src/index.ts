@@ -1087,7 +1087,7 @@ export class CloudService {
 				type: string;
 				payload: unknown;
 			}>(
-				"SELECT j.id,j.organization_id,j.benchmark_run_id,j.type,j.payload FROM jobs j JOIN runners r ON r.id=$1 WHERE j.organization_id=$2 AND r.state='ACTIVE' AND j.state IN ('QUEUED','LEASED') AND j.available_at<=$3 AND (j.state='QUEUED' OR j.lease_expires_at<=$3) AND j.requirements <@ r.capabilities ORDER BY j.priority DESC,j.created_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1",
+				"SELECT j.id,j.organization_id,j.benchmark_run_id,j.type,j.payload FROM jobs j JOIN runners r ON r.id=$1 WHERE j.organization_id=$2 AND j.type='BENCHMARK_RUN' AND r.state='ACTIVE' AND j.state IN ('QUEUED','LEASED') AND j.available_at<=$3 AND (j.state='QUEUED' OR j.lease_expires_at<=$3) AND j.requirements <@ r.capabilities ORDER BY j.priority DESC,j.created_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1",
 				[runner.runnerId, runner.organizationId, this.now().toISOString()],
 			);
 			const job = selected.rows[0];
