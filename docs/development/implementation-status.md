@@ -3,8 +3,20 @@
 Updated: 2026-09-02. A state of `VERIFIED` means the listed command passed in
 this workspace; all other states are deliberately conservative.
 
+Canonical integrated product base: `integration/repoarena-1.0`.
+
+- `EXECUTION_ENGINE = VERIFIED`
+- `LOCAL_PRODUCT = VERIFIED`
+- `CLOUD_CORE = VERIFIED`
+- `GITHUB_INTEGRATION = VERIFIED`
+- `CLOUD_PRODUCT = VERIFIED`
+
 **Execution engine: VERIFIED.** Detailed evidence is recorded in
 `docs/development/execution-engine-final-audit.md`.
+
+**Local product: VERIFIED.** Detailed localhost product, readiness, optimizer,
+and consistency evidence is recorded in
+`docs/development/local-product-final-audit.md`.
 
 **Cloud core: VERIFIED.** Detailed PostgreSQL, API, queue, runner, storage, and
 security evidence is recorded in `docs/development/cloud-core-final-audit.md`.
