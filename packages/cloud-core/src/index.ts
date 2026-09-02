@@ -320,6 +320,79 @@ export class CloudService {
 		).rows;
 	}
 
+	async saveReadiness(
+		actor: Principal,
+		input: {
+			organizationId: string;
+			repositoryId: string;
+			report: { id: string; score: number; status: string };
+		},
+	): Promise<void> {
+		await this.authorize(actor, input.organizationId, "REPOSITORY_MANAGE");
+		const saved = await this.database.query(
+			"INSERT INTO readiness_snapshots(id,organization_id,repository_id,report,score,status) SELECT $1,$2,$3,$4,$5,$6 WHERE EXISTS(SELECT 1 FROM repositories WHERE id=$3 AND organization_id=$2)",
+			[
+				input.report.id,
+				input.organizationId,
+				input.repositoryId,
+				input.report,
+				input.report.score,
+				input.report.status,
+			],
+		);
+		if (!saved.rowCount) fail("NOT_FOUND", "Repository not found.");
+	}
+
+	async listReadiness(
+		actor: Principal,
+		organizationId: string,
+		repositoryId?: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "REPOSITORY_READ");
+		return (
+			await this.database.query(
+				"SELECT id,repository_id,report,score,status,created_at FROM readiness_snapshots WHERE organization_id=$1 AND ($2::uuid IS NULL OR repository_id=$2) ORDER BY created_at DESC,id DESC LIMIT 100",
+				[organizationId, repositoryId ?? null],
+			)
+		).rows;
+	}
+
+	async saveOptimization(
+		actor: Principal,
+		input: {
+			organizationId: string;
+			repositoryId: string;
+			result: { id: string; status: string };
+		},
+	): Promise<void> {
+		await this.authorize(actor, input.organizationId, "BENCHMARK_RUN");
+		const saved = await this.database.query(
+			"INSERT INTO optimization_runs(id,organization_id,repository_id,result,status) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM repositories WHERE id=$3 AND organization_id=$2)",
+			[
+				input.result.id,
+				input.organizationId,
+				input.repositoryId,
+				input.result,
+				input.result.status,
+			],
+		);
+		if (!saved.rowCount) fail("NOT_FOUND", "Repository not found.");
+	}
+
+	async listOptimizations(
+		actor: Principal,
+		organizationId: string,
+		repositoryId?: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "REPOSITORY_READ");
+		return (
+			await this.database.query(
+				"SELECT id,repository_id,result,status,created_at FROM optimization_runs WHERE organization_id=$1 AND ($2::uuid IS NULL OR repository_id=$2) ORDER BY created_at DESC,id DESC LIMIT 100",
+				[organizationId, repositoryId ?? null],
+			)
+		).rows;
+	}
+
 	async listMemberships(
 		actor: Principal,
 		organizationId: string,

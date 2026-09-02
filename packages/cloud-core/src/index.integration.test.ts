@@ -15,7 +15,7 @@ const source = new URL(process.env.DATABASE_URL ?? "");
 source.pathname = "/repoarena_test";
 const testUrl = source.toString();
 const database = createDatabase({ connectionString: testUrl, max: 20 });
-let clock = new Date("2026-09-01T00:00:00.000Z");
+let clock = new Date("2030-09-01T00:00:00.000Z");
 const service = new CloudService(database, () => clock);
 
 beforeAll(async () => {
@@ -424,4 +424,45 @@ it("authorizes artifact allocation, checksum finalization and tenant-scoped read
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+it("persists canonical readiness and optimizer history with tenant isolation", async () => {
+	const context = await foundation(randomUUID().slice(0, 8));
+	const outsider = await foundation(randomUUID().slice(0, 8));
+	const readinessId = randomUUID();
+	await service.saveReadiness(context.principal, {
+		organizationId: context.organizationId,
+		repositoryId: context.repositoryId,
+		report: { id: readinessId, score: 91, status: "READY" },
+	});
+	expect(
+		await service.listReadiness(
+			context.principal,
+			context.organizationId,
+			context.repositoryId,
+		),
+	).toMatchObject([{ id: readinessId, score: 91, status: "READY" }]);
+	await expect(
+		service.listReadiness(outsider.principal, context.organizationId),
+	).rejects.toThrow("Permission denied");
+	const optimizationId = randomUUID();
+	await service.saveOptimization(context.principal, {
+		organizationId: context.organizationId,
+		repositoryId: context.repositoryId,
+		result: { id: optimizationId, status: "COMPLETED" },
+	});
+	expect(
+		await service.listOptimizations(
+			context.principal,
+			context.organizationId,
+			context.repositoryId,
+		),
+	).toMatchObject([{ id: optimizationId, status: "COMPLETED" }]);
+	await expect(
+		service.saveOptimization(context.principal, {
+			organizationId: context.organizationId,
+			repositoryId: outsider.repositoryId,
+			result: { id: randomUUID(), status: "COMPLETED" },
+		}),
+	).rejects.toThrow("Repository not found");
 });

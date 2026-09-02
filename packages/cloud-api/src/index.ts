@@ -39,6 +39,11 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/organizations/{organizationId}/api-keys": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/audit-events": { get: {} },
 		"/api/v1/organizations/{organizationId}/usage": { get: {} },
+		"/api/v1/organizations/{organizationId}/readiness": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/optimizations": {
+			get: {},
+			post: {},
+		},
 		"/api/v1/runner/jobs/claim": { post: {} },
 		"/api/v1/runner/jobs/{jobId}/result": { post: {} },
 		"/api/v1/github/webhooks": { post: {} },
@@ -218,6 +223,41 @@ const bodySchemas = {
 			benchmark_version_id: uuid,
 			cadence: z.enum(["HOURLY", "DAILY", "WEEKLY"]),
 			next_run_at: z.string().datetime(),
+		})
+		.strict(),
+	readiness: z
+		.object({
+			repository_id: uuid,
+			report: z
+				.object({
+					schema: z.literal("repoarena.readiness/v1"),
+					id: uuid,
+					score: z.number().int().min(0).max(100),
+					status: z.enum(["READY", "NEEDS_ATTENTION", "BLOCKED"]),
+					dimensions: z.array(z.unknown()),
+					findings: z.array(z.unknown()),
+				})
+				.passthrough(),
+		})
+		.strict(),
+	optimization: z
+		.object({
+			repository_id: uuid,
+			result: z
+				.object({
+					schema: z.literal("repoarena.optimization-run/v1"),
+					id: uuid,
+					status: z.enum([
+						"COMPLETED",
+						"CANCELLED",
+						"BUDGET_EXHAUSTED",
+						"NO_VALID_CANDIDATES",
+					]),
+					trials: z.array(z.unknown()),
+					pareto_candidate_ids: z.array(z.string()),
+					recommendation: z.unknown().nullable(),
+				})
+				.passthrough(),
 		})
 		.strict(),
 	githubInstallation: z
@@ -788,6 +828,60 @@ export function createCloudApi(options: {
 				return json(response, 200, { data: { updated: true } }, requestId);
 			}
 			const tasks = path.match(/^\/api\/v1\/organizations\/([^/]+)\/tasks$/);
+			const readiness = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/readiness$/,
+			);
+			if (readiness?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listReadiness(
+							await authenticate(request),
+							uuid.parse(readiness[1]),
+							url.searchParams.get("repository_id")
+								? uuid.parse(url.searchParams.get("repository_id"))
+								: undefined,
+						),
+					},
+					requestId,
+				);
+			if (readiness?.[1] && request.method === "POST") {
+				const body = bodySchemas.readiness.parse(await readBody(request));
+				await cloud.saveReadiness(await authenticate(request, true), {
+					organizationId: uuid.parse(readiness[1]),
+					repositoryId: body.repository_id,
+					report: body.report,
+				});
+				return json(response, 201, { data: { id: body.report.id } }, requestId);
+			}
+			const optimizations = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/optimizations$/,
+			);
+			if (optimizations?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listOptimizations(
+							await authenticate(request),
+							uuid.parse(optimizations[1]),
+							url.searchParams.get("repository_id")
+								? uuid.parse(url.searchParams.get("repository_id"))
+								: undefined,
+						),
+					},
+					requestId,
+				);
+			if (optimizations?.[1] && request.method === "POST") {
+				const body = bodySchemas.optimization.parse(await readBody(request));
+				await cloud.saveOptimization(await authenticate(request, true), {
+					organizationId: uuid.parse(optimizations[1]),
+					repositoryId: body.repository_id,
+					result: body.result,
+				});
+				return json(response, 201, { data: { id: body.result.id } }, requestId);
+			}
 			if (tasks?.[1] && request.method === "GET")
 				return json(
 					response,
