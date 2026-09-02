@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import {
-	createServer,
 	type IncomingMessage,
 	type Server,
 	type ServerResponse,
+	createServer,
 } from "node:http";
 import { appPage, publicPage } from "./assets.js";
 
@@ -253,6 +253,22 @@ export function createCloudProduct(options: {
 					),
 				);
 			}
+			if (url.pathname === "/pricing")
+				return send(
+					response,
+					200,
+					"text/html; charset=utf-8",
+					publicPage(
+						'<main class="hero"><div class="eyebrow">RepoArena subscriptions</div><h1>Product capability, not model tokens.</h1><p>Community supports the local workflow. Pro adds private repositories, cloud history, schedules, and API access. Team adds collaboration and higher limits. Enterprise is a managed agreement.</p><section class="features"><article class="card"><h2>Community</h2><p>Local and public repository workflows.</p></article><article class="card"><h2>Pro</h2><p>Private repositories, schedules, API access, and expanded history.</p></article><article class="card"><h2>Team</h2><p>Team collaboration and higher runner, member, and schedule limits.</p></article><article class="card"><h2>Enterprise</h2><p>Contact the RepoArena team for contractual deployment requirements.</p></article></section><div class="alert"><strong>BYOK remains separate.</strong> Model-provider usage is paid directly to OpenAI, Anthropic, Google, or another provider through your own credentials.</div><div class="actions"><a class="button" href="/signin">Choose a plan</a></div></main>',
+						{
+							title: "RepoArena pricing",
+							description:
+								"RepoArena subscriptions and BYOK model-cost separation.",
+							canonical: `${options.publicOrigin}/pricing`,
+						},
+						nonce,
+					),
+				);
 			if (url.pathname === "/leaderboard") {
 				const upstream = await cloud(
 					`/api/v1/public/leaderboard?limit=${encodeURIComponent(url.searchParams.get("limit") ?? "50")}`,

@@ -1,17 +1,18 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-	createServer,
 	type IncomingMessage,
 	type Server,
 	type ServerResponse,
+	createServer,
 } from "node:http";
-import type { Database } from "@repoarena/cloud-db";
+import type { BillingService } from "@repoarena/billing";
 import {
 	ArtifactService,
 	CloudService,
 	type Permission,
 	type Principal,
 } from "@repoarena/cloud-core";
+import type { Database } from "@repoarena/cloud-db";
 import { RepoArenaError } from "@repoarena/core";
 import type {
 	GitHubActionsAuth,
@@ -43,6 +44,11 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/organizations/{organizationId}/api-keys": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/audit-events": { get: {} },
 		"/api/v1/organizations/{organizationId}/usage": { get: {} },
+		"/api/v1/organizations/{organizationId}/billing": { get: {} },
+		"/api/v1/organizations/{organizationId}/billing/checkout": { post: {} },
+		"/api/v1/organizations/{organizationId}/billing/portal": { post: {} },
+		"/api/v1/organizations/{organizationId}/billing/subscription": { put: {} },
+		"/api/v1/billing/stripe/webhooks": { post: {} },
 		"/api/v1/organizations/{organizationId}/readiness": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/optimizations": {
 			get: {},
@@ -327,6 +333,19 @@ const bodySchemas = {
 			methodology_version: z.string().min(1).max(100).optional(),
 		})
 		.strict(),
+	billingCheckout: z
+		.object({
+			plan: z.enum(["PRO", "TEAM"]),
+			interval: z.enum(["MONTHLY", "YEARLY"]),
+		})
+		.strict(),
+	billingSubscription: z
+		.object({
+			plan: z.enum(["PRO", "TEAM"]).optional(),
+			interval: z.enum(["MONTHLY", "YEARLY"]).optional(),
+			cancel_at_period_end: z.boolean().optional(),
+		})
+		.strict(),
 	result: z.object({ result: z.unknown() }).strict(),
 };
 const parseCookies = (request: IncomingMessage) =>
@@ -395,6 +414,7 @@ export function createCloudApi(options: {
 	logger?: (event: Readonly<Record<string, unknown>>) => void;
 	github?: GitHubIntegration;
 	githubActions?: GitHubActionsAuth;
+	billing?: BillingService;
 }) {
 	const cloud = new CloudService(options.database, options.now);
 	const publishing = new PublishingService(
@@ -528,6 +548,41 @@ export function createCloudApi(options: {
 				);
 				return response.end(
 					await publishing.repositoryBadge(repositoryBadge[1]),
+				);
+			}
+			if (
+				request.method === "POST" &&
+				path === "/api/v1/billing/stripe/webhooks"
+			) {
+				if (!options.billing)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Billing integration is unavailable.",
+					);
+				if (
+					!(request.headers["content-type"] ?? "")
+						.toString()
+						.startsWith("application/json")
+				)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Billing webhook content type is invalid.",
+					);
+				const signature = request.headers["stripe-signature"];
+				if (typeof signature !== "string")
+					throw new RepoArenaError(
+						"FORBIDDEN",
+						"Billing webhook signature is required.",
+					);
+				const result = await options.billing.ingest(
+					await readRawBody(request),
+					signature,
+				);
+				return json(
+					response,
+					result.duplicate ? 200 : 202,
+					{ data: result },
+					requestId,
 				);
 			}
 			if (request.method === "POST" && path === "/api/v1/github/webhooks") {
@@ -837,6 +892,122 @@ export function createCloudApi(options: {
 			const memberships = path.match(
 				/^\/api\/v1\/organizations\/([^/]+)\/memberships$/,
 			);
+			const billing = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/billing$/,
+			);
+			if (billing?.[1] && request.method === "GET") {
+				if (!options.billing)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Billing integration is unavailable.",
+					);
+				return json(
+					response,
+					200,
+					{
+						data: await options.billing.getBilling(
+							await authenticate(request),
+							uuid.parse(billing[1]),
+						),
+					},
+					requestId,
+				);
+			}
+			const billingCheckout = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/billing\/checkout$/,
+			);
+			if (billingCheckout?.[1] && request.method === "POST") {
+				if (!options.billing)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Billing integration is unavailable.",
+					);
+				const body = bodySchemas.billingCheckout.parse(await readBody(request));
+				const operation = request.headers["idempotency-key"];
+				if (typeof operation !== "string" || !operation)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Idempotency-Key is required.",
+					);
+				return json(
+					response,
+					201,
+					{
+						data: await options.billing.checkout(
+							await authenticate(request, true),
+							{
+								organizationId: uuid.parse(billingCheckout[1]),
+								plan: body.plan,
+								interval: body.interval,
+								successUrl: `${options.publicOrigin}/app#billing/success`,
+								cancelUrl: `${options.publicOrigin}/app#billing/cancel`,
+								idempotencyKey: operation.slice(0, 200),
+							},
+						),
+					},
+					requestId,
+				);
+			}
+			const billingPortal = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/billing\/portal$/,
+			);
+			if (billingPortal?.[1] && request.method === "POST") {
+				if (!options.billing)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Billing integration is unavailable.",
+					);
+				return json(
+					response,
+					201,
+					{
+						data: await options.billing.portal(
+							await authenticate(request, true),
+							uuid.parse(billingPortal[1]),
+							`${options.publicOrigin}/app#billing`,
+						),
+					},
+					requestId,
+				);
+			}
+			const billingSubscription = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/billing\/subscription$/,
+			);
+			if (billingSubscription?.[1] && request.method === "PUT") {
+				if (!options.billing)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Billing integration is unavailable.",
+					);
+				const body = bodySchemas.billingSubscription.parse(
+					await readBody(request),
+				);
+				const operation = request.headers["idempotency-key"];
+				if (typeof operation !== "string" || !operation)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Idempotency-Key is required.",
+					);
+				return json(
+					response,
+					200,
+					{
+						data: await options.billing.changeSubscription(
+							await authenticate(request, true),
+							uuid.parse(billingSubscription[1]),
+							{
+								...(body.plan ? { plan: body.plan } : {}),
+								...(body.interval ? { interval: body.interval } : {}),
+								...(body.cancel_at_period_end === undefined
+									? {}
+									: { cancelAtPeriodEnd: body.cancel_at_period_end }),
+								idempotencyKey: operation.slice(0, 200),
+							},
+						),
+					},
+					requestId,
+				);
+			}
 			const publishRun = path.match(
 				/^\/api\/v1\/organizations\/([^/]+)\/runs\/([^/]+)\/publish$/,
 			);

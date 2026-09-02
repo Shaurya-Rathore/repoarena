@@ -2,16 +2,21 @@ import { createHmac, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeAll, expect, it } from "vitest";
+import { BillingService, type PriceCatalog } from "@repoarena/billing";
+import type {
+	BillingProvider,
+	ProviderSubscription,
+} from "@repoarena/billing-stripe";
 import { CloudService } from "@repoarena/cloud-core";
 import {
 	createDatabase,
 	migrate,
 	resetTestDatabase,
 } from "@repoarena/cloud-db";
-import { FileObjectStorage } from "@repoarena/object-storage";
 import { GitHubIntegration } from "@repoarena/github-integration";
-import { createCloudApi, type OAuthProvider } from "./index.js";
+import { FileObjectStorage } from "@repoarena/object-storage";
+import { beforeAll, expect, it } from "vitest";
+import { type OAuthProvider, createCloudApi } from "./index.js";
 
 const source = new URL(process.env.DATABASE_URL ?? "");
 source.pathname = "/repoarena_test";
@@ -34,6 +39,29 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 		}),
 	};
 	const githubSecret = "api-webhook-secret";
+	const stripeWebhookSecret = "stripe-webhook-api-sentinel";
+	const subscriptions = new Map<string, ProviderSubscription>();
+	const billingProvider: BillingProvider = {
+		createCustomer: async () => ({ id: "cus_http" }),
+		createCheckout: async () => ({
+			id: "cs_http",
+			url: "https://checkout.test/http",
+		}),
+		createPortal: async () => ({
+			id: "bps_http",
+			url: "https://portal.test/http",
+		}),
+		retrieveSubscription: async (id) => {
+			const value = subscriptions.get(id);
+			if (!value) throw new Error("missing subscription");
+			return value;
+		},
+		updateSubscription: async ({ id }) => {
+			const value = subscriptions.get(id);
+			if (!value) throw new Error("missing subscription");
+			return value;
+		},
+	};
 	const github = new GitHubIntegration(
 		database,
 		new CloudService(database),
@@ -46,12 +74,25 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 		},
 		githubSecret,
 	);
+	const cloud = new CloudService(database);
+	const prices: PriceCatalog = {
+		PRO: { MONTHLY: "price_pro_month" },
+		TEAM: { MONTHLY: "price_team_month" },
+	};
+	const billing = new BillingService(
+		database,
+		cloud,
+		billingProvider,
+		prices,
+		stripeWebhookSecret,
+	);
 	const api = createCloudApi({
 		database,
 		storage: new FileObjectStorage(root),
 		oauth: provider,
 		publicOrigin: "http://127.0.0.1",
 		github,
+		billing,
 	});
 	const address = await api.start("127.0.0.1", 0);
 	const origin = address.url;
@@ -112,6 +153,81 @@ it("runs the authenticated API-to-job-to-run flow with CSRF, tenant and replay p
 		expect(created.status).toBe(201);
 		const organizationId = ((await created.json()) as { data: { id: string } })
 			.data.id;
+		const checkout = await fetch(
+			`${origin}/api/v1/organizations/${organizationId}/billing/checkout`,
+			{
+				method: "POST",
+				headers: { ...headers, "idempotency-key": "api-checkout" },
+				body: JSON.stringify({ plan: "PRO", interval: "MONTHLY" }),
+			},
+		);
+		expect(checkout.status).toBe(201);
+		expect(JSON.stringify(await checkout.json())).toContain("checkout.test");
+		expect(
+			(await cloud.entitlements(organizationId)).private_repositories,
+		).toBe(false);
+		const active: ProviderSubscription = {
+			id: "sub_http",
+			customerId: "cus_http",
+			priceId: "price_pro_month",
+			status: "active",
+			quantity: 1,
+			periodStart: null,
+			periodEnd: null,
+			trialEnd: null,
+			cancelAtPeriodEnd: false,
+			cancelledAt: null,
+		};
+		subscriptions.set(active.id, active);
+		const stripeEvent = {
+			id: "evt_http_active",
+			type: "customer.subscription.updated",
+			created: Math.floor(Date.now() / 1_000),
+			data: {
+				object: {
+					id: active.id,
+					customer: active.customerId,
+					status: active.status,
+				},
+			},
+		};
+		const stripeRaw = Buffer.from(JSON.stringify(stripeEvent));
+		const stripeTimestamp = stripeEvent.created;
+		const stripeSignature = `t=${stripeTimestamp},v1=${createHmac(
+			"sha256",
+			stripeWebhookSecret,
+		)
+			.update(`${stripeTimestamp}.`)
+			.update(stripeRaw)
+			.digest("hex")}`;
+		const stripeWebhook = await fetch(
+			`${origin}/api/v1/billing/stripe/webhooks`,
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"stripe-signature": stripeSignature,
+				},
+				body: stripeRaw,
+			},
+		);
+		expect(stripeWebhook.status).toBe(202);
+		const forgedStripeWebhook = await fetch(
+			`${origin}/api/v1/billing/stripe/webhooks`,
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"stripe-signature": `t=${stripeTimestamp},v1=${"0".repeat(64)}`,
+				},
+				body: stripeRaw,
+			},
+		);
+		expect(forgedStripeWebhook.status).toBe(403);
+		await billing.processEvent(stripeEvent.id);
+		expect(
+			(await cloud.entitlements(organizationId)).private_repositories,
+		).toBe(true);
 		const installationPayload = {
 			id: 445566,
 			account: { id: 1122, login: "api-org", type: "Organization" },

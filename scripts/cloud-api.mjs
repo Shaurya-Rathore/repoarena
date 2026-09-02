@@ -1,16 +1,18 @@
 import { readFile } from "node:fs/promises";
+import { StripeProvider } from "../packages/billing-stripe/dist/index.js";
+import { BillingService } from "../packages/billing/dist/index.js";
 import {
-	createCloudApi,
 	GitHubOAuthProvider,
+	createCloudApi,
 } from "../packages/cloud-api/dist/index.js";
-import { createDatabase } from "../packages/cloud-db/dist/index.js";
 import { CloudService } from "../packages/cloud-core/dist/index.js";
-import { GitHubProvider } from "../packages/github-provider/dist/index.js";
+import { createDatabase } from "../packages/cloud-db/dist/index.js";
 import {
 	GitHubActionsAuth,
 	GitHubIntegration,
 	GitHubOidcVerifier,
 } from "../packages/github-integration/dist/index.js";
+import { GitHubProvider } from "../packages/github-provider/dist/index.js";
 import {
 	FileObjectStorage,
 	S3ObjectStorage,
@@ -63,6 +65,25 @@ const githubActions = new GitHubActionsAuth(
 	cloud,
 	new GitHubOidcVerifier(),
 );
+const billing =
+	process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET
+		? new BillingService(
+				database,
+				cloud,
+				new StripeProvider(process.env.STRIPE_SECRET_KEY),
+				{
+					PRO: {
+						MONTHLY: process.env.STRIPE_PRICE_PRO_MONTHLY,
+						YEARLY: process.env.STRIPE_PRICE_PRO_YEARLY,
+					},
+					TEAM: {
+						MONTHLY: process.env.STRIPE_PRICE_TEAM_MONTHLY,
+						YEARLY: process.env.STRIPE_PRICE_TEAM_YEARLY,
+					},
+				},
+				process.env.STRIPE_WEBHOOK_SECRET,
+			)
+		: undefined;
 const api = createCloudApi({
 	database,
 	storage,
@@ -70,6 +91,7 @@ const api = createCloudApi({
 	...(oauth ? { oauth } : {}),
 	...(github ? { github } : {}),
 	githubActions,
+	...(billing ? { billing } : {}),
 });
 const address = await api.start(
 	"127.0.0.1",

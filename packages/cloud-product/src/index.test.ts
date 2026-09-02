@@ -103,6 +103,11 @@ describe("cloud product server", () => {
 		expect(await (await fetch(`${origin}/sitemap.xml`)).text()).toContain(
 			"/share/rap_public",
 		);
+		const pricing = await (await fetch(`${origin}/pricing`)).text();
+		expect(pricing).toContain("Community");
+		expect(pricing).toContain("Pro");
+		expect(pricing).toContain("Team");
+		expect(pricing).toContain("Model-provider usage is paid directly");
 	});
 
 	it("redirects unauthenticated app requests without accepting an open redirect", async () => {
@@ -124,6 +129,9 @@ describe("cloud product server", () => {
 		expect(response.headers.get("cache-control")).toBe("private, no-store");
 		expect(html).toContain('name="robots" content="noindex,nofollow"');
 		expect(html).toContain("Repositories");
+		expect(html).toContain("Billing");
+		expect(html).toContain("Continue to secure Stripe Checkout");
+		expect(html).toContain("Model-provider usage is separate");
 	});
 
 	it("does not reuse authenticated organization checks across sessions", async () => {

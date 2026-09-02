@@ -11,6 +11,8 @@
 		"test:integration": "vitest run --config vitest.integration.config.ts"
 	},
 	"dependencies": {
+		"@repoarena/billing": "workspace:*",
+		"@repoarena/billing-stripe": "workspace:*",
 		"@repoarena/cloud-core": "workspace:*",
 		"@repoarena/cloud-db": "workspace:*",
 		"@repoarena/core": "workspace:*",

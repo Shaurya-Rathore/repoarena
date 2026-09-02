@@ -25,6 +25,9 @@
 		"cloud:scheduler": "node scripts/cloud-scheduler.mjs",
 		"cloud:jobs": "node scripts/cloud-jobs.mjs",
 		"cloud:github-webhooks": "node scripts/github-webhooks.mjs",
+		"billing:reconcile": "node scripts/billing-reconcile.mjs",
+		"billing:webhooks": "node scripts/billing-webhooks.mjs",
+		"billing:stripe-smoke": "node scripts/stripe-smoke.mjs",
 		"test:postgres": "pnpm --filter @repoarena/cloud-db test:integration",
 		"skills:validate": "node scripts/validate-skills.mjs"
 	},
