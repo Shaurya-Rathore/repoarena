@@ -29,6 +29,24 @@ const publicResultSchema = z
 			.optional(),
 	})
 	.passthrough();
+const repositoryProjectionSchema = z
+	.object({
+		name: z.string(),
+		url: z.string().url().nullable(),
+		visibility: z.enum(["PUBLIC", "PRIVATE", "INTERNAL"]),
+	})
+	.strict();
+const runProjectionSchema = z
+	.object({
+		id: z.string().uuid(),
+		state: z.string(),
+		statistics: statisticsSchema,
+		agents: z.array(
+			z.object({ id: z.string(), model: z.string().nullable() }).strict(),
+		),
+		completed_at: z.string().datetime(),
+	})
+	.strict();
 
 export type PublicRunProjection = Readonly<{
 	public_id: string;
@@ -48,41 +66,19 @@ export type PublicRunProjection = Readonly<{
 	published_at: string;
 }>;
 
-const safeRunProjection = (
-	publicId: string,
-	row: {
-		repository_name: string;
-		html_url: string | null;
-		visibility: "PUBLIC" | "PRIVATE" | "INTERNAL";
-		benchmark_run_id: string;
-		canonical_result: unknown;
-		completed_at: Date;
-		published_at: Date;
-		methodology_version: string;
-	},
-): PublicRunProjection => {
-	const result = publicResultSchema.parse(row.canonical_result);
-	return {
-		public_id: publicId,
-		repository: {
-			name: row.repository_name,
-			url: row.html_url,
-			visibility: row.visibility,
-		},
-		run: {
-			id: row.benchmark_run_id,
-			state: result.state,
-			statistics: statisticsSchema.parse(result.statistics),
-			agents: (result.agents ?? []).map((agent) => ({
-				id: agent.id,
-				model: agent.model ?? null,
-			})),
-			completed_at: row.completed_at.toISOString(),
-		},
-		methodology_version: row.methodology_version,
-		published_at: row.published_at.toISOString(),
-	};
-};
+const storedProjection = (row: {
+	public_id: string;
+	repository_projection: unknown;
+	run_projection: unknown;
+	methodology_version: string;
+	published_at: Date;
+}): PublicRunProjection => ({
+	public_id: row.public_id,
+	repository: repositoryProjectionSchema.parse(row.repository_projection),
+	run: runProjectionSchema.parse(row.run_projection),
+	methodology_version: row.methodology_version,
+	published_at: row.published_at.toISOString(),
+});
 
 export type LeaderboardEligibility =
 	| "ELIGIBLE"
@@ -163,8 +159,11 @@ export class PublishingService {
 			const methodologyVersion =
 				input.methodologyVersion ?? "repoarena.methodology/v1";
 			const repositoryProjection = {
-				name: run.repository_name,
-				url: run.html_url,
+				name:
+					run.visibility === "PUBLIC"
+						? run.repository_name
+						: "Private repository",
+				url: run.visibility === "PUBLIC" ? run.html_url : null,
 				visibility: run.visibility,
 			};
 			const parsed = publicResultSchema.parse(run.canonical_result);
@@ -239,27 +238,21 @@ export class PublishingService {
 	async getPublic(publicId: string): Promise<PublicRunProjection> {
 		const result = await this.database.query<{
 			public_id: string;
-			repository_name: string;
-			html_url: string | null;
-			visibility: "PUBLIC" | "PRIVATE" | "INTERNAL";
-			benchmark_run_id: string;
-			canonical_result: unknown;
-			completed_at: Date;
+			repository_projection: unknown;
+			run_projection: unknown;
 			published_at: Date;
 			methodology_version: string;
 		}>(
-			"SELECT p.public_id,r.repository_name,r.html_url,r.visibility,p.benchmark_run_id,br.canonical_result,br.completed_at,p.published_at,p.methodology_version FROM public_run_publications p JOIN repositories r ON r.id=p.repository_id JOIN benchmark_runs br ON br.id=p.benchmark_run_id WHERE p.public_id=$1 AND p.state='PUBLISHED'",
+			"SELECT public_id,repository_projection,run_projection,published_at,methodology_version FROM public_run_publications WHERE public_id=$1 AND state='PUBLISHED'",
 			[publicId],
 		);
 		const row = result.rows[0];
 		if (!row)
 			throw new RepoArenaError("NOT_FOUND", "Published run is unavailable.");
-		return safeRunProjection(row.public_id, row);
+		return storedProjection(row);
 	}
 
-	async leaderboard(
-		limit = 50,
-	): Promise<{
+	async leaderboard(limit = 50): Promise<{
 		entries: readonly (PublicRunProjection & {
 			eligibility: LeaderboardEligibility;
 		})[];
@@ -271,21 +264,17 @@ export class PublishingService {
 			);
 		const rows = await this.database.query<{
 			public_id: string;
-			repository_name: string;
-			html_url: string | null;
-			visibility: "PUBLIC" | "PRIVATE" | "INTERNAL";
-			benchmark_run_id: string;
-			canonical_result: unknown;
-			completed_at: Date;
+			repository_projection: unknown;
+			run_projection: unknown;
 			published_at: Date;
 			methodology_version: string;
 		}>(
-			"SELECT p.public_id,r.repository_name,r.html_url,r.visibility,p.benchmark_run_id,br.canonical_result,br.completed_at,p.published_at,p.methodology_version FROM public_run_publications p JOIN repositories r ON r.id=p.repository_id JOIN benchmark_runs br ON br.id=p.benchmark_run_id WHERE p.state='PUBLISHED' ORDER BY p.published_at DESC,p.public_id LIMIT $1",
+			"SELECT public_id,repository_projection,run_projection,published_at,methodology_version FROM public_run_publications WHERE state='PUBLISHED' ORDER BY published_at DESC,public_id LIMIT $1",
 			[limit],
 		);
 		const entries = rows.rows
 			.map((row) => {
-				const projection = safeRunProjection(row.public_id, row);
+				const projection = storedProjection(row);
 				return { ...projection, eligibility: eligibility(projection) };
 			})
 			.sort(

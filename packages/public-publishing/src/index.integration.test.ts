@@ -117,6 +117,29 @@ it("publishes an explicit safe projection, ranks it, serves a badge, and revokes
 		eligibility: "ELIGIBLE",
 	});
 	expect(await publishing.badge(published.public_id)).toContain("75% solved");
+	await database.query(
+		"UPDATE benchmark_runs SET canonical_result=$2 WHERE id=$1",
+		[
+			runId,
+			{
+				state: "COMPLETED",
+				statistics: {
+					task_count: 2,
+					attempt_count: 4,
+					solved_count: 0,
+					success_rate: 0,
+					pass_at_k: 0,
+					median_duration_ms: 1,
+					total_cost_micros: 1,
+				},
+				agents: [{ id: "mutated-private-row" }],
+			},
+		],
+	);
+	expect(
+		(await publishing.getPublic(published.public_id)).run.statistics
+			.success_rate,
+	).toBe(0.75);
 	await publishing.unpublish(owner, organizationId, published.public_id);
 	await expect(publishing.getPublic(published.public_id)).rejects.toThrow(
 		"unavailable",
@@ -140,13 +163,18 @@ it("enforces private confirmation and organization authorization", async () => {
 	await expect(
 		publishing.publish(owner, { organizationId, runId }),
 	).rejects.toThrow("explicit confirmation");
-	expect(
-		await publishing.publish(owner, {
-			organizationId,
-			runId,
-			confirmPrivate: true,
-		}),
-	).toMatchObject({ repository: { visibility: "PRIVATE" } });
+	const privatePublication = await publishing.publish(owner, {
+		organizationId,
+		runId,
+		confirmPrivate: true,
+	});
+	expect(privatePublication).toMatchObject({
+		repository: {
+			visibility: "PRIVATE",
+			name: "Private repository",
+			url: null,
+		},
+	});
 	const outsiderId = await cloud.createUser({
 		provider: "mock",
 		subject: randomUUID(),
