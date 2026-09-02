@@ -115,4 +115,28 @@ describe("cloud product server", () => {
 		expect(html).toContain('name="robots" content="noindex,nofollow"');
 		expect(html).toContain("Repositories");
 	});
+
+	it("does not reuse authenticated organization checks across sessions", async () => {
+		const seen: string[] = [];
+		const product = createCloudProduct({
+			cloudOrigin: "http://cloud.invalid",
+			publicOrigin: "http://127.0.0.1",
+			fetch: async (_input, init) => {
+				seen.push(String((init?.headers as Record<string, string>).cookie));
+				return Response.json({ data: [] });
+			},
+		});
+		products.push(product);
+		const origin = (await product.start("127.0.0.1", 0)).url;
+		await fetch(`${origin}/app`, {
+			headers: { cookie: "repoarena_session=org-a" },
+		});
+		await fetch(`${origin}/app`, {
+			headers: { cookie: "repoarena_session=org-b" },
+		});
+		expect(seen).toEqual([
+			"repoarena_session=org-a",
+			"repoarena_session=org-b",
+		]);
+	});
 });

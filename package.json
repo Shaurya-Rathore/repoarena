@@ -21,6 +21,7 @@
 		"db:seed": "node scripts/db-seed.mjs",
 		"cloud:api": "node scripts/cloud-api.mjs",
 		"cloud:product": "node scripts/cloud-product.mjs",
+		"test:cloud-product-built": "pnpm --filter @repoarena/cloud-product build && node scripts/cloud-product-built-e2e.mjs",
 		"cloud:scheduler": "node scripts/cloud-scheduler.mjs",
 		"cloud:jobs": "node scripts/cloud-jobs.mjs",
 		"cloud:github-webhooks": "node scripts/github-webhooks.mjs",

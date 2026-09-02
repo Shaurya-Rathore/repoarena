@@ -54,6 +54,7 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/github/actions/oidc/exchange": { post: {} },
 		"/api/v1/github/actions/runs/{runId}/result": { post: {} },
 		"/api/v1/organizations/{organizationId}/github/installations": {
+			get: {},
 			post: {},
 		},
 		"/api/v1/organizations/{organizationId}/repositories/{repositoryId}/github-policy":
@@ -441,6 +442,19 @@ export function createCloudApi(options: {
 				return json(response, 200, { status: "ok" }, requestId);
 			if (request.method === "GET" && path === "/api/v1/openapi.json")
 				return json(response, 200, cloudApiContract, requestId);
+			if (request.method === "GET" && path.startsWith("/api/v1/public/")) {
+				const rate = await cloud.consumeRateLimit(
+					`public:${request.socket.remoteAddress ?? "unknown"}`,
+					120,
+					60_000,
+				);
+				response.setHeader("x-ratelimit-remaining", String(rate.remaining));
+				if (!rate.allowed)
+					throw new RepoArenaError(
+						"RATE_LIMITED",
+						"Public request limit exceeded.",
+					);
+			}
 			if (request.method === "GET" && path === "/api/v1/public/leaderboard") {
 				response.setHeader(
 					"cache-control",
@@ -691,6 +705,18 @@ export function createCloudApi(options: {
 			const githubInstallation = path.match(
 				/^\/api\/v1\/organizations\/([^/]+)\/github\/installations$/,
 			);
+			if (githubInstallation?.[1] && request.method === "GET")
+				return json(
+					response,
+					200,
+					{
+						data: await cloud.listGitHubInstallations(
+							await authenticate(request),
+							uuid.parse(githubInstallation[1]),
+						),
+					},
+					requestId,
+				);
 			if (githubInstallation?.[1] && request.method === "POST") {
 				if (!options.github)
 					throw new RepoArenaError(

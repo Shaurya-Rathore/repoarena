@@ -393,6 +393,19 @@ export class CloudService {
 		).rows;
 	}
 
+	async listGitHubInstallations(
+		actor: Principal,
+		organizationId: string,
+	): Promise<unknown[]> {
+		await this.authorize(actor, organizationId, "REPOSITORY_READ");
+		return (
+			await this.database.query(
+				"SELECT id,github_installation_id,github_account_id,account_login,account_type,permissions,repository_selection,state,installed_at,suspended_at,uninstalled_at,updated_at FROM github_installations WHERE organization_id=$1 ORDER BY created_at DESC,id",
+				[organizationId],
+			)
+		).rows;
+	}
+
 	async listMemberships(
 		actor: Principal,
 		organizationId: string,

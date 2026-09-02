@@ -88,6 +88,7 @@ it("serves an authenticated canonical run and its explicit safe publication", as
 			defaultBranch: "main",
 			visibility: "PUBLIC",
 		});
+		const sentinel = "PRIVATE_EVALUATOR_SENTINEL_MUST_NOT_LEAK";
 		const task = await cloud.createTaskVersion(principal, {
 			organizationId: orgId,
 			repositoryId,
@@ -95,6 +96,7 @@ it("serves an authenticated canonical run and its explicit safe publication", as
 			title: "Bug",
 			publicTask: { prompt: "fix" },
 			validationState: "VALIDATED",
+			privatePayload: Buffer.from(sentinel),
 		});
 		const benchmark = await cloud.createBenchmark(principal, {
 			organizationId: orgId,
@@ -110,7 +112,6 @@ it("serves an authenticated canonical run and its explicit safe publication", as
 			idempotencyKey: "product-e2e",
 			budget: { max_attempts: 1 },
 		});
-		const sentinel = "PRIVATE_EVALUATOR_SENTINEL_MUST_NOT_LEAK";
 		await database.query(
 			"UPDATE benchmark_runs SET state='COMPLETED',completed_at=now(),canonical_result=$2 WHERE id=$1",
 			[
