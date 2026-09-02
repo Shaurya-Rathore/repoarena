@@ -335,13 +335,13 @@ export class PublishingService {
 		const rate = projection.run.statistics.success_rate;
 		const message =
 			rate === null ? "unknown" : `${Math.round(rate * 100)}% solved`;
-		const escape = (value: string) =>
+		const escapeHtml = (value: string) =>
 			value
 				.replaceAll("&", "&amp;")
 				.replaceAll("<", "&lt;")
 				.replaceAll(">", "&gt;")
 				.replaceAll('"', "&quot;");
-		return `<svg xmlns="http://www.w3.org/2000/svg" width="162" height="20" role="img" aria-label="RepoArena: ${escape(message)}"><title>RepoArena: ${escape(message)}</title><rect width="162" height="20" rx="3" fill="#14231f"/><text x="8" y="14" fill="#eef9f3" font-family="Verdana,sans-serif" font-size="11">RepoArena · ${escape(message)}</text></svg>`;
+		return `<svg xmlns="http://www.w3.org/2000/svg" width="162" height="20" role="img" aria-label="RepoArena: ${escapeHtml(message)}"><title>RepoArena: ${escapeHtml(message)}</title><rect width="162" height="20" rx="3" fill="#14231f"/><text x="8" y="14" fill="#eef9f3" font-family="Verdana,sans-serif" font-size="11">RepoArena · ${escapeHtml(message)}</text></svg>`;
 	}
 
 	async latestRepository(

@@ -7,7 +7,7 @@ import {
 } from "node:http";
 import { appPage, publicPage } from "./assets.js";
 
-const escape = (value: unknown) =>
+const escapeHtml = (value: unknown) =>
 	String(value ?? "")
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")
@@ -139,7 +139,7 @@ export function createCloudProduct(options: {
 					response,
 					200,
 					"application/xml; charset=utf-8",
-					`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locations.map((location) => `<url><loc>${escape(new URL(location, options.publicOrigin))}</loc></url>`).join("")}</urlset>`,
+					`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locations.map((location) => `<url><loc>${escapeHtml(new URL(location, options.publicOrigin))}</loc></url>`).join("")}</urlset>`,
 				);
 			}
 			if (url.pathname.startsWith("/repository/")) {
@@ -283,7 +283,7 @@ export function createCloudProduct(options: {
 				const rows = payload.data.entries
 					.map(
 						(entry) =>
-							`<tr><td><a href="/share/${escape(entry.public_id)}">${escape(entry.run.agents.map((a) => `${a.id}/${a.model ?? "default"}`).join(", "))}</a></td><td>${entry.run.statistics.success_rate === null ? "unknown" : `${(entry.run.statistics.success_rate * 100).toFixed(1)}%`}</td><td>${escape(entry.run.statistics.pass_at_k ?? "unknown")}</td><td>${entry.run.statistics.attempt_count}</td><td>${entry.run.statistics.total_cost_micros === null ? "unknown" : `$${(entry.run.statistics.total_cost_micros / 1e6).toFixed(4)}`}</td><td>${escape(entry.eligibility)}</td><td>${escape(entry.methodology_version)}</td></tr>`,
+							`<tr><td><a href="/share/${escapeHtml(entry.public_id)}">${escapeHtml(entry.run.agents.map((a) => `${a.id}/${a.model ?? "default"}`).join(", "))}</a></td><td>${entry.run.statistics.success_rate === null ? "unknown" : `${(entry.run.statistics.success_rate * 100).toFixed(1)}%`}</td><td>${escapeHtml(entry.run.statistics.pass_at_k ?? "unknown")}</td><td>${entry.run.statistics.attempt_count}</td><td>${entry.run.statistics.total_cost_micros === null ? "unknown" : `$${(entry.run.statistics.total_cost_micros / 1e6).toFixed(4)}`}</td><td>${escapeHtml(entry.eligibility)}</td><td>${escapeHtml(entry.methodology_version)}</td></tr>`,
 					)
 					.join("");
 				return send(
@@ -350,9 +350,9 @@ export function createCloudProduct(options: {
 					200,
 					"text/html; charset=utf-8",
 					publicPage(
-						`<main class="hero"><div class="eyebrow">Verified public benchmark</div><h1>${escape(value.repository.name)}</h1><p>${escape(value.run.agents.map((agent) => `${agent.id} / ${agent.model ?? "default"}`).join(", "))}</p><div class="grid"><div class="card"><div class="metric">${value.run.statistics.solved_count}/${value.run.statistics.attempt_count}</div><span class="muted">Solved attempts</span></div><div class="card"><div class="metric">${value.run.statistics.success_rate === null ? "unknown" : `${(value.run.statistics.success_rate * 100).toFixed(1)}%`}</div><span class="muted">Solve rate</span></div><div class="card"><div class="metric">${escape(value.run.statistics.pass_at_k ?? "unknown")}</div><span class="muted">Pass@k</span></div><div class="card"><div class="metric">${value.run.statistics.total_cost_micros === null ? "unknown" : `$${(value.run.statistics.total_cost_micros / 1e6).toFixed(4)}`}</div><span class="muted">Provider cost via BYOK</span></div></div><h2>README badge</h2><img src="${escape(badgeUrl)}" alt="RepoArena benchmark badge"><pre>${escape(markdown)}</pre><p>Methodology: ${escape(value.methodology_version)} · Completed ${escape(value.run.completed_at)}</p>${value.repository.url ? `<a class="button secondary" href="${escape(value.repository.url)}" rel="noopener noreferrer">Repository</a>` : ""}</main>`,
+						`<main class="hero"><div class="eyebrow">Verified public benchmark</div><h1>${escapeHtml(value.repository.name)}</h1><p>${escapeHtml(value.run.agents.map((agent) => `${agent.id} / ${agent.model ?? "default"}`).join(", "))}</p><div class="grid"><div class="card"><div class="metric">${value.run.statistics.solved_count}/${value.run.statistics.attempt_count}</div><span class="muted">Solved attempts</span></div><div class="card"><div class="metric">${value.run.statistics.success_rate === null ? "unknown" : `${(value.run.statistics.success_rate * 100).toFixed(1)}%`}</div><span class="muted">Solve rate</span></div><div class="card"><div class="metric">${escapeHtml(value.run.statistics.pass_at_k ?? "unknown")}</div><span class="muted">Pass@k</span></div><div class="card"><div class="metric">${value.run.statistics.total_cost_micros === null ? "unknown" : `$${(value.run.statistics.total_cost_micros / 1e6).toFixed(4)}`}</div><span class="muted">Provider cost via BYOK</span></div></div><h2>README badge</h2><img src="${escapeHtml(badgeUrl)}" alt="RepoArena benchmark badge"><pre>${escapeHtml(markdown)}</pre><p>Methodology: ${escapeHtml(value.methodology_version)} · Completed ${escapeHtml(value.run.completed_at)}</p>${value.repository.url ? `<a class="button secondary" href="${escapeHtml(value.repository.url)}" rel="noopener noreferrer">Repository</a>` : ""}</main>`,
 						{
-							title: `${escape(value.repository.name)} benchmark · RepoArena`,
+							title: `${escapeHtml(value.repository.name)} benchmark · RepoArena`,
 							description:
 								"Published RepoArena coding-agent benchmark with methodology and sample evidence.",
 							canonical: `${options.publicOrigin}${url.pathname}`,

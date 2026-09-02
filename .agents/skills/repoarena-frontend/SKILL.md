@@ -13,3 +13,9 @@ versioned `/api/v1` boundary. Browser assets consume bounded public summaries;
 detail routes load canonical persisted records lazily. Never read `.repoarena`
 files directly from browser code or recalculate benchmark/readiness/optimizer
 truth in a view.
+
+The cloud product in `packages/cloud-product` is a same-origin security gateway
+over the typed cloud API. Authenticated HTML and API responses are private and
+`no-store`; public share, leaderboard, sitemap, and badge routes consume only
+`@repoarena/public-publishing` projections. Preserve organization identity when
+switching workspaces and test that server-side caches never cross sessions.
