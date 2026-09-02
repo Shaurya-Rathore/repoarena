@@ -11,11 +11,15 @@
 		"test:e2e": "vitest run --config vitest.e2e.config.ts"
 	},
 	"dependencies": {
+		"@repoarena/benchmark-engine": "workspace:*",
 		"@repoarena/cloud-api": "workspace:*",
 		"@repoarena/cloud-core": "workspace:*",
 		"@repoarena/cloud-db": "workspace:*",
 		"@repoarena/github-integration": "workspace:*",
 		"@repoarena/object-storage": "workspace:*",
-		"@repoarena/public-publishing": "workspace:*"
+		"@repoarena/public-publishing": "workspace:*",
+		"@repoarena/reporter": "workspace:*",
+		"@repoarena/runner-core": "workspace:*",
+		"@repoarena/task-spec": "workspace:*"
 	}
 }

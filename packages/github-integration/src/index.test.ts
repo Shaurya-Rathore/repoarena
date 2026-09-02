@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
 import {
+	type TriggerPolicy,
 	checkConclusion,
 	evaluateTrigger,
-	type TriggerPolicy,
 } from "./index.js";
 
 const policy: TriggerPolicy = {
@@ -78,6 +78,12 @@ it("evaluates deterministic push, path, draft and fork trigger policy", () => {
 });
 
 it("maps canonical public results to GitHub conclusions", () => {
+	expect(
+		checkConclusion({
+			state: "COMPLETED",
+			statistics: { solved_count: 2, attempt_count: 2, task_count: 1 },
+		}),
+	).toBe("success");
 	expect(
 		checkConclusion({
 			state: "COMPLETED",

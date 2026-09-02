@@ -232,6 +232,9 @@ importers:
 
   packages/cloud-product:
     dependencies:
+      '@repoarena/benchmark-engine':
+        specifier: workspace:*
+        version: link:../benchmark-engine
       '@repoarena/cloud-api':
         specifier: workspace:*
         version: link:../cloud-api
@@ -250,6 +253,15 @@ importers:
       '@repoarena/public-publishing':
         specifier: workspace:*
         version: link:../public-publishing
+      '@repoarena/reporter':
+        specifier: workspace:*
+        version: link:../reporter
+      '@repoarena/runner-core':
+        specifier: workspace:*
+        version: link:../runner-core
+      '@repoarena/task-spec':
+        specifier: workspace:*
+        version: link:../task-spec
 
   packages/cloud-worker:
     dependencies:

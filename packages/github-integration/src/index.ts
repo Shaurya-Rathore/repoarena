@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { CloudService, Principal } from "@repoarena/cloud-core";
 import type { Database } from "@repoarena/cloud-db";
-import { contentHash, RepoArenaError } from "@repoarena/core";
+import { RepoArenaError, contentHash } from "@repoarena/core";
 import {
 	GitHubError,
-	verifyWebhook,
 	type GitHubRepository,
+	verifyWebhook,
 } from "@repoarena/github-provider";
 import { z } from "zod";
 export * from "./oidc.js";
@@ -92,14 +92,21 @@ export const evaluateTrigger = (input: {
 
 export const checkConclusion = (result: {
 	state?: string;
-	statistics?: { solved?: number; task_count?: number };
+	statistics?: {
+		solved?: number;
+		solved_count?: number;
+		task_count?: number;
+		attempt_count?: number;
+	};
 	failure_code?: string;
 }) => {
 	if (result.state === "CANCELLED") return "cancelled" as const;
 	if (result.state === "TIMED_OUT") return "timed_out" as const;
 	if (result.state === "INFRASTRUCTURE_FAILURE") return "neutral" as const;
-	return result.statistics?.task_count !== undefined &&
-		result.statistics.solved === result.statistics.task_count
+	const statistics = result.statistics;
+	const solved = statistics?.solved_count ?? statistics?.solved;
+	const total = statistics?.attempt_count ?? statistics?.task_count;
+	return total !== undefined && solved === total
 		? ("success" as const)
 		: ("failure" as const);
 };
@@ -721,7 +728,12 @@ export class GitHubIntegration {
 		const result = await this.database.query<{
 			canonical_result: {
 				state?: string;
-				statistics?: { solved?: number; task_count?: number };
+				statistics?: {
+					solved?: number;
+					solved_count?: number;
+					task_count?: number;
+					attempt_count?: number;
+				};
 				failure_code?: string;
 			};
 			github_check_run_id: string;
@@ -756,7 +768,7 @@ export class GitHubIntegration {
 			);
 		const stats = row.canonical_result.statistics ?? {};
 		const conclusion = checkConclusion(row.canonical_result);
-		const summary = `Tasks: ${stats.task_count ?? "unknown"}\n\nSolved: ${stats.solved ?? "unknown"}\n\nConclusion: ${conclusion}`;
+		const summary = `Tasks: ${stats.task_count ?? "unknown"}\n\nAttempts: ${stats.attempt_count ?? "unknown"}\n\nSolved: ${stats.solved_count ?? stats.solved ?? "unknown"}\n\nConclusion: ${conclusion}`;
 		await this.provider.updateCheckRun(
 			external,
 			row.owner_name,
