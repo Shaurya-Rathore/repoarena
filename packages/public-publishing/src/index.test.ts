@@ -20,6 +20,11 @@ const projection = (
 		},
 		agents: [{ id: "codex", model: "model" }],
 		completed_at: "2026-09-01T00:00:00.000Z",
+		provenance: {
+			benchmark_version_id: "00000000-0000-4000-8000-000000000001",
+			configuration_hash: "c".repeat(64),
+			task_set_hash: "t".repeat(64),
+		},
 		...changes,
 	},
 	methodology_version: "repoarena.methodology/v1",

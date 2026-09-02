@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { CloudService, Principal } from "@repoarena/cloud-core";
 import type { Database } from "@repoarena/cloud-db";
-import { RepoArenaError } from "@repoarena/core";
+import { contentHash, RepoArenaError } from "@repoarena/core";
 import { z } from "zod";
 
 const statisticsSchema = z
@@ -45,6 +45,13 @@ const runProjectionSchema = z
 			z.object({ id: z.string(), model: z.string().nullable() }).strict(),
 		),
 		completed_at: z.string().datetime(),
+		provenance: z
+			.object({
+				benchmark_version_id: z.string().uuid(),
+				configuration_hash: z.string(),
+				task_set_hash: z.string(),
+			})
+			.strict(),
 	})
 	.strict();
 
@@ -61,6 +68,11 @@ export type PublicRunProjection = Readonly<{
 		statistics: z.infer<typeof statisticsSchema>;
 		agents: readonly { id: string; model: string | null }[];
 		completed_at: string;
+		provenance: {
+			benchmark_version_id: string;
+			configuration_hash: string;
+			task_set_hash: string;
+		};
 	};
 	methodology_version: string;
 	published_at: string;
@@ -139,8 +151,11 @@ export class PublishingService {
 				visibility: "PUBLIC" | "PRIVATE" | "INTERNAL";
 				canonical_result: unknown;
 				completed_at: Date;
+				benchmark_version_id: string;
+				config_hash: string;
+				task_hashes: string[];
 			}>(
-				"SELECT br.repository_id,r.repository_name,r.html_url,r.visibility,br.canonical_result,br.completed_at FROM benchmark_runs br JOIN repositories r ON r.id=br.repository_id WHERE br.id=$1 AND br.organization_id=$2 AND br.state='COMPLETED' FOR UPDATE",
+				"SELECT br.repository_id,r.repository_name,r.html_url,r.visibility,br.canonical_result,br.completed_at,br.benchmark_version_id,bv.config_hash,ARRAY(SELECT tv.content_hash FROM benchmark_version_tasks bvt JOIN task_versions tv ON tv.id=bvt.task_version_id WHERE bvt.benchmark_version_id=br.benchmark_version_id ORDER BY bvt.ordinal) AS task_hashes FROM benchmark_runs br JOIN repositories r ON r.id=br.repository_id JOIN benchmark_versions bv ON bv.id=br.benchmark_version_id WHERE br.id=$1 AND br.organization_id=$2 AND br.state='COMPLETED' FOR UPDATE OF br",
 				[input.runId, input.organizationId],
 			);
 			const run = result.rows[0];
@@ -177,6 +192,11 @@ export class PublishingService {
 					model: agent.model ?? null,
 				})),
 				completed_at: run.completed_at.toISOString(),
+				provenance: {
+					benchmark_version_id: run.benchmark_version_id,
+					configuration_hash: run.config_hash,
+					task_set_hash: contentHash(run.task_hashes),
+				},
 			};
 			const existing = await client.query<{ public_id: string }>(
 				"SELECT public_id FROM public_run_publications WHERE benchmark_run_id=$1",
@@ -273,17 +293,27 @@ export class PublishingService {
 			"SELECT public_id,repository_projection,run_projection,published_at,methodology_version FROM public_run_publications WHERE state='PUBLISHED' ORDER BY published_at DESC,public_id LIMIT $1",
 			[limit],
 		);
-		const entries = rows.rows
-			.map((row) => {
-				const projection = storedProjection(row);
-				return { ...projection, eligibility: eligibility(projection) };
-			})
-			.sort(
-				(a, b) =>
-					(b.run.statistics.success_rate ?? -1) -
-						(a.run.statistics.success_rate ?? -1) ||
-					a.public_id.localeCompare(b.public_id),
+		let entries = rows.rows.map((row) => {
+			const projection = storedProjection(row);
+			return { ...projection, eligibility: eligibility(projection) };
+		});
+		const comparableTaskSets = new Set(
+			entries
+				.filter((entry) => entry.eligibility === "ELIGIBLE")
+				.map((entry) => entry.run.provenance.task_set_hash),
+		);
+		if (comparableTaskSets.size > 1)
+			entries = entries.map((entry) =>
+				entry.eligibility === "ELIGIBLE"
+					? { ...entry, eligibility: "INCOMPARABLE_TASK_SET" as const }
+					: entry,
 			);
+		entries = entries.sort(
+			(a, b) =>
+				(b.run.statistics.success_rate ?? -1) -
+					(a.run.statistics.success_rate ?? -1) ||
+				a.public_id.localeCompare(b.public_id),
+		);
 		return { entries };
 	}
 
