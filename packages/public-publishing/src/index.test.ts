@@ -5,6 +5,7 @@ const projection = (
 	changes: Partial<PublicRunProjection["run"]> = {},
 ): PublicRunProjection => ({
 	public_id: "rap_public",
+	repository_public_id: "rar_00000000000000000000",
 	repository: { name: "repo", url: null, visibility: "PUBLIC" },
 	run: {
 		id: "run",

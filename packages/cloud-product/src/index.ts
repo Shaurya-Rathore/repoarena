@@ -142,6 +142,54 @@ export function createCloudProduct(options: {
 					`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locations.map((location) => `<url><loc>${escape(new URL(location, options.publicOrigin))}</loc></url>`).join("")}</urlset>`,
 				);
 			}
+			if (url.pathname.startsWith("/repository/")) {
+				const id = url.pathname.slice("/repository/".length);
+				const upstream = await cloud(
+					`/api/v1/public/repositories/${encodeURIComponent(id)}`,
+				);
+				if (!upstream.ok)
+					return send(
+						response,
+						404,
+						"text/html; charset=utf-8",
+						publicPage(
+							'<main class="hero"><h1>Repository unavailable</h1></main>',
+							{
+								title: "Repository unavailable · RepoArena",
+								description: "This public repository profile is unavailable.",
+								canonical: `${options.publicOrigin}${url.pathname}`,
+							},
+							nonce,
+						),
+					);
+				const value = (await upstream.json()) as {
+					data: { public_id: string };
+				};
+				response.statusCode = 302;
+				response.setHeader(
+					"location",
+					`/share/${encodeURIComponent(value.data.public_id)}`,
+				);
+				return response.end();
+			}
+			if (url.pathname.startsWith("/badge/repository/")) {
+				const id = url.pathname
+					.slice("/badge/repository/".length)
+					.replace(/\.svg$/, "");
+				const upstream = await cloud(
+					`/api/v1/public/repositories/${encodeURIComponent(id)}/badge.svg`,
+				);
+				response.statusCode = upstream.status;
+				response.setHeader(
+					"content-type",
+					upstream.headers.get("content-type") ?? "image/svg+xml",
+				);
+				response.setHeader(
+					"cache-control",
+					upstream.headers.get("cache-control") ?? "public, max-age=300",
+				);
+				return response.end(Buffer.from(await upstream.arrayBuffer()));
+			}
 			if (url.pathname.startsWith("/badge/")) {
 				const id = url.pathname.slice("/badge/".length).replace(/\.svg$/, "");
 				const upstream = await cloud(
@@ -277,6 +325,7 @@ export function createCloudProduct(options: {
 				const p = (await upstream.json()) as {
 					data: {
 						public_id: string;
+						repository_public_id: string;
 						repository: { name: string; url: string | null };
 						run: {
 							statistics: {
@@ -294,7 +343,7 @@ export function createCloudProduct(options: {
 					};
 				};
 				const value = p.data;
-				const badgeUrl = `${options.publicOrigin}/badge/${encodeURIComponent(value.public_id)}.svg`;
+				const badgeUrl = `${options.publicOrigin}/badge/repository/${encodeURIComponent(value.repository_public_id)}.svg`;
 				const markdown = `[![RepoArena](${badgeUrl})](${options.publicOrigin}/share/${encodeURIComponent(value.public_id)})`;
 				return send(
 					response,

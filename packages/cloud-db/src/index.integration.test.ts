@@ -73,7 +73,7 @@ it("rolls back failed transactions", async () => {
 it("serializes concurrent migration startup with an advisory lock", async () => {
 	await Promise.all([migrate(database), migrate(database)]);
 	const rows = await database.query("SELECT version FROM schema_migrations");
-	expect(rows.rowCount).toBe(5);
+	expect(rows.rowCount).toBe(6);
 });
 
 it("migrates a supported v1 fixture forward without losing data", async () => {

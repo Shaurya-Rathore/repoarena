@@ -57,6 +57,7 @@ const runProjectionSchema = z
 
 export type PublicRunProjection = Readonly<{
 	public_id: string;
+	repository_public_id: string;
 	repository: {
 		name: string;
 		url: string | null;
@@ -80,12 +81,14 @@ export type PublicRunProjection = Readonly<{
 
 const storedProjection = (row: {
 	public_id: string;
+	repository_public_id: string;
 	repository_projection: unknown;
 	run_projection: unknown;
 	methodology_version: string;
 	published_at: Date;
 }): PublicRunProjection => ({
 	public_id: row.public_id,
+	repository_public_id: row.repository_public_id,
 	repository: repositoryProjectionSchema.parse(row.repository_projection),
 	run: runProjectionSchema.parse(row.run_projection),
 	methodology_version: row.methodology_version,
@@ -171,6 +174,7 @@ export class PublishingService {
 				);
 			publicResultSchema.parse(run.canonical_result);
 			const publicId = `rap_${randomBytes(18).toString("base64url")}`;
+			const repositoryPublicId = `rar_${randomBytes(18).toString("base64url")}`;
 			const publishedAt = this.now();
 			const methodologyVersion =
 				input.methodologyVersion ?? "repoarena.methodology/v1";
@@ -203,6 +207,12 @@ export class PublishingService {
 				[input.runId],
 			);
 			const effectiveId = existing.rows[0]?.public_id ?? publicId;
+			const repositoryIdentity = await client.query<{ public_id: string }>(
+				"UPDATE repositories SET public_id=coalesce(public_id,$2) WHERE id=$1 RETURNING public_id",
+				[run.repository_id, repositoryPublicId],
+			);
+			const effectiveRepositoryId =
+				repositoryIdentity.rows[0]?.public_id ?? repositoryPublicId;
 			const publisherId = actor.type === "USER" ? actor.userId : actor.apiKeyId;
 			await client.query(
 				"INSERT INTO public_run_publications(id,public_id,organization_id,repository_id,benchmark_run_id,state,repository_projection,run_projection,methodology_version,publisher_type,publisher_id,private_repository_confirmed,published_at) VALUES($1,$2,$3,$4,$5,'PUBLISHED',$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(benchmark_run_id) DO UPDATE SET state='PUBLISHED',repository_projection=excluded.repository_projection,run_projection=excluded.run_projection,methodology_version=excluded.methodology_version,publisher_type=excluded.publisher_type,publisher_id=excluded.publisher_id,private_repository_confirmed=excluded.private_repository_confirmed,published_at=excluded.published_at,unpublished_at=NULL,updated_at=now()",
@@ -234,6 +244,7 @@ export class PublishingService {
 			);
 			return {
 				public_id: effectiveId,
+				repository_public_id: effectiveRepositoryId,
 				repository: repositoryProjection,
 				run: runProjection,
 				methodology_version: methodologyVersion,
@@ -259,12 +270,13 @@ export class PublishingService {
 	async getPublic(publicId: string): Promise<PublicRunProjection> {
 		const result = await this.database.query<{
 			public_id: string;
+			repository_public_id: string;
 			repository_projection: unknown;
 			run_projection: unknown;
 			published_at: Date;
 			methodology_version: string;
 		}>(
-			"SELECT public_id,repository_projection,run_projection,published_at,methodology_version FROM public_run_publications WHERE public_id=$1 AND state='PUBLISHED'",
+			"SELECT p.public_id,r.public_id AS repository_public_id,p.repository_projection,p.run_projection,p.published_at,p.methodology_version FROM public_run_publications p JOIN repositories r ON r.id=p.repository_id WHERE p.public_id=$1 AND p.state='PUBLISHED'",
 			[publicId],
 		);
 		const row = result.rows[0];
@@ -285,12 +297,13 @@ export class PublishingService {
 			);
 		const rows = await this.database.query<{
 			public_id: string;
+			repository_public_id: string;
 			repository_projection: unknown;
 			run_projection: unknown;
 			published_at: Date;
 			methodology_version: string;
 		}>(
-			"SELECT public_id,repository_projection,run_projection,published_at,methodology_version FROM public_run_publications WHERE state='PUBLISHED' ORDER BY published_at DESC,public_id LIMIT $1",
+			"SELECT p.public_id,r.public_id AS repository_public_id,p.repository_projection,p.run_projection,p.published_at,p.methodology_version FROM public_run_publications p JOIN repositories r ON r.id=p.repository_id WHERE p.state='PUBLISHED' ORDER BY p.published_at DESC,p.public_id LIMIT $1",
 			[limit],
 		);
 		let entries = rows.rows.map((row) => {
@@ -329,5 +342,27 @@ export class PublishingService {
 				.replaceAll(">", "&gt;")
 				.replaceAll('"', "&quot;");
 		return `<svg xmlns="http://www.w3.org/2000/svg" width="162" height="20" role="img" aria-label="RepoArena: ${escape(message)}"><title>RepoArena: ${escape(message)}</title><rect width="162" height="20" rx="3" fill="#14231f"/><text x="8" y="14" fill="#eef9f3" font-family="Verdana,sans-serif" font-size="11">RepoArena · ${escape(message)}</text></svg>`;
+	}
+
+	async latestRepository(
+		repositoryPublicId: string,
+	): Promise<PublicRunProjection> {
+		const result = await this.database.query<{ public_id: string }>(
+			"SELECT p.public_id FROM public_run_publications p JOIN repositories r ON r.id=p.repository_id WHERE r.public_id=$1 AND p.state='PUBLISHED' ORDER BY p.published_at DESC,p.public_id DESC LIMIT 1",
+			[repositoryPublicId],
+		);
+		const publicId = result.rows[0]?.public_id;
+		if (!publicId)
+			throw new RepoArenaError(
+				"NOT_FOUND",
+				"Published repository is unavailable.",
+			);
+		return this.getPublic(publicId);
+	}
+
+	async repositoryBadge(repositoryPublicId: string): Promise<string> {
+		return this.badge(
+			(await this.latestRepository(repositoryPublicId)).public_id,
+		);
 	}
 }

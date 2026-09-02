@@ -72,6 +72,8 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/public/runs/{publicId}": { get: {} },
 		"/api/v1/public/leaderboard": { get: {} },
 		"/api/v1/public/badges/{publicId}.svg": { get: {} },
+		"/api/v1/public/repositories/{repositoryPublicId}": { get: {} },
+		"/api/v1/public/repositories/{repositoryPublicId}/badge.svg": { get: {} },
 	},
 });
 
@@ -498,6 +500,35 @@ export function createCloudApi(options: {
 				);
 				response.setHeader("x-request-id", requestId);
 				return response.end(await publishing.badge(publicBadge[1]));
+			}
+			const publicRepository = path.match(
+				/^\/api\/v1\/public\/repositories\/(rar_[A-Za-z0-9_-]+)$/,
+			);
+			if (request.method === "GET" && publicRepository?.[1]) {
+				response.setHeader(
+					"cache-control",
+					"public, max-age=60, stale-while-revalidate=300",
+				);
+				return json(
+					response,
+					200,
+					{ data: await publishing.latestRepository(publicRepository[1]) },
+					requestId,
+				);
+			}
+			const repositoryBadge = path.match(
+				/^\/api\/v1\/public\/repositories\/(rar_[A-Za-z0-9_-]+)\/badge\.svg$/,
+			);
+			if (request.method === "GET" && repositoryBadge?.[1]) {
+				response.statusCode = 200;
+				response.setHeader("content-type", "image/svg+xml; charset=utf-8");
+				response.setHeader(
+					"cache-control",
+					"public, max-age=300, stale-while-revalidate=3600",
+				);
+				return response.end(
+					await publishing.repositoryBadge(repositoryBadge[1]),
+				);
 			}
 			if (request.method === "POST" && path === "/api/v1/github/webhooks") {
 				if (!options.github)

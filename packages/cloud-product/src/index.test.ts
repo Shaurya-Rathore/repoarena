@@ -3,6 +3,7 @@ import { createCloudProduct } from "./index.js";
 
 const publication = {
 	public_id: "rap_public",
+	repository_public_id: "rar_00000000000000000000",
 	repository: {
 		name: '<script>alert("repo")</script>',
 		url: "https://github.com/acme/repo",
@@ -43,6 +44,15 @@ describe("cloud product server", () => {
 					);
 				if (path === "/api/v1/public/runs/rap_public")
 					return Response.json({ data: publication });
+				if (path === "/api/v1/public/repositories/rar_00000000000000000000")
+					return Response.json({ data: publication });
+				if (
+					path ===
+					"/api/v1/public/repositories/rar_00000000000000000000/badge.svg"
+				)
+					return new Response('<svg role="img"></svg>', {
+						headers: { "content-type": "image/svg+xml" },
+					});
 				if (path === "/api/v1/public/leaderboard")
 					return Response.json({
 						data: {

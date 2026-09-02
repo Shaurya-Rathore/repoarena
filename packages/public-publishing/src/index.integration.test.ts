@@ -117,6 +117,13 @@ it("publishes an explicit safe projection, ranks it, serves a badge, and revokes
 		eligibility: "ELIGIBLE",
 	});
 	expect(await publishing.badge(published.public_id)).toContain("75% solved");
+	expect(
+		(await publishing.latestRepository(published.repository_public_id))
+			.public_id,
+	).toBe(published.public_id);
+	expect(
+		await publishing.repositoryBadge(published.repository_public_id),
+	).toContain("75% solved");
 	await database.query(
 		"UPDATE benchmark_runs SET canonical_result=$2 WHERE id=$1",
 		[
