@@ -84,3 +84,52 @@ it("classifies rate limits and verifies the exact raw webhook body", async () =>
 		),
 	).toThrow("invalid");
 });
+
+it("forms customer, portal, retrieval and subscription update contracts", async () => {
+	const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+	const stripe = new StripeProvider(
+		"sk_test_contract",
+		"https://stripe.test",
+		async (input, init) => {
+			const url = String(input);
+			calls.push({ url, init });
+			if (url.endsWith("/customers")) return Response.json({ id: "cus_1" });
+			if (url.endsWith("/billing_portal/sessions"))
+				return Response.json({ id: "bps_1", url: "https://billing.test" });
+			return Response.json({
+				id: "sub_variable-format",
+				customer: "cus_1",
+				status: "active",
+				items: { data: [{ price: { id: "price_team" }, quantity: 3 }] },
+			});
+		},
+	);
+	await stripe.createCustomer({
+		organizationId: "org_opaque",
+		idempotencyKey: "customer-idempotency",
+	});
+	await stripe.createPortal({
+		customerId: "cus_1",
+		returnUrl: "https://app.test/billing",
+		idempotencyKey: "portal-idempotency",
+	});
+	expect(
+		(await stripe.retrieveSubscription("sub_variable-format")).quantity,
+	).toBe(3);
+	await stripe.updateSubscription({
+		id: "sub_variable-format",
+		priceId: "price_team",
+		cancelAtPeriodEnd: true,
+		idempotencyKey: "subscription-idempotency",
+	});
+	expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+		"/v1/customers",
+		"/v1/billing_portal/sessions",
+		"/v1/subscriptions/sub_variable-format",
+		"/v1/subscriptions/sub_variable-format",
+	]);
+	expect(String(calls[3]?.init?.body)).toContain("cancel_at_period_end=true");
+	expect(new Headers(calls[3]?.init?.headers).get("idempotency-key")).toBe(
+		"subscription-idempotency",
+	);
+});

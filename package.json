@@ -12,7 +12,7 @@
 		"typecheck": "pnpm build && pnpm -r --if-present typecheck",
 		"test": "pnpm test:unit",
 		"test:unit": "pnpm -r --if-present test:unit",
-		"test:integration": "pnpm -r --if-present test:integration",
+		"test:integration": "pnpm -r --workspace-concurrency=1 --if-present test:integration",
 		"verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build",
 		"verify:release": "pnpm verify",
 		"dev:infra": "docker compose -f infra/compose/docker-compose.dev.yml up -d",
