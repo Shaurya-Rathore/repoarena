@@ -92,6 +92,7 @@ export const eligibility = (
 	projection: PublicRunProjection,
 	currentMethodology = "repoarena.methodology/v1",
 ): LeaderboardEligibility => {
+	if (projection.repository.visibility !== "PUBLIC") return "PRIVATE_RESULT";
 	if (projection.methodology_version !== currentMethodology)
 		return "OUTDATED_METHODOLOGY";
 	if (projection.run.state !== "COMPLETED") return "INFRASTRUCTURE_INVALID";

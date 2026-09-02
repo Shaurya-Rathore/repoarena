@@ -42,4 +42,14 @@ it("explains deterministic leaderboard eligibility", () => {
 		"OUTDATED_METHODOLOGY",
 	);
 	expect(eligibility(projection({ agents: [] }))).toBe("INVALID_PROVENANCE");
+	expect(
+		eligibility({
+			...projection(),
+			repository: {
+				name: "Private repository",
+				url: null,
+				visibility: "PRIVATE",
+			},
+		}),
+	).toBe("PRIVATE_RESULT");
 });

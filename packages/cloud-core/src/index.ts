@@ -1256,6 +1256,39 @@ export class CloudService {
 		return id;
 	}
 
+	async setSchedule(
+		actor: Principal,
+		organizationId: string,
+		scheduleId: string,
+		input: { enabled: boolean; nextRunAt?: string },
+	): Promise<void> {
+		await this.authorize(actor, organizationId, "BENCHMARK_RUN");
+		const changed = await this.database.query(
+			"UPDATE schedules SET enabled=$3,next_run_at=coalesce($4,next_run_at),updated_at=$5 WHERE id=$1 AND organization_id=$2",
+			[
+				scheduleId,
+				organizationId,
+				input.enabled,
+				input.nextRunAt ?? null,
+				this.now().toISOString(),
+			],
+		);
+		if (!changed.rowCount) fail("NOT_FOUND", "Schedule not found.");
+	}
+
+	async deleteSchedule(
+		actor: Principal,
+		organizationId: string,
+		scheduleId: string,
+	): Promise<void> {
+		await this.authorize(actor, organizationId, "BENCHMARK_RUN");
+		const changed = await this.database.query(
+			"DELETE FROM schedules WHERE id=$1 AND organization_id=$2",
+			[scheduleId, organizationId],
+		);
+		if (!changed.rowCount) fail("NOT_FOUND", "Schedule not found.");
+	}
+
 	async schedulerTick(limit = 100): Promise<number> {
 		return this.database.transaction(async (client) => {
 			const due = await client.query<{

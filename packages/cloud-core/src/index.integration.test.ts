@@ -466,3 +466,38 @@ it("persists canonical readiness and optimizer history with tenant isolation", a
 		}),
 	).rejects.toThrow("Repository not found");
 });
+
+it("updates and removes schedules without crossing organization boundaries", async () => {
+	const context = await foundation(randomUUID().slice(0, 8));
+	const outsider = await foundation(randomUUID().slice(0, 8));
+	const scheduleId = await service.createSchedule(context.principal, {
+		organizationId: context.organizationId,
+		benchmarkVersionId: context.benchmark.versionId,
+		cadence: "DAILY",
+		nextRunAt: "2031-01-01T00:00:00.000Z",
+	});
+	await service.setSchedule(
+		context.principal,
+		context.organizationId,
+		scheduleId,
+		{ enabled: false },
+	);
+	expect(
+		await service.listSchedules(context.principal, context.organizationId),
+	).toMatchObject([{ id: scheduleId, enabled: false }]);
+	await expect(
+		service.deleteSchedule(
+			outsider.principal,
+			context.organizationId,
+			scheduleId,
+		),
+	).rejects.toThrow("Permission denied");
+	await service.deleteSchedule(
+		context.principal,
+		context.organizationId,
+		scheduleId,
+	);
+	expect(
+		await service.listSchedules(context.principal, context.organizationId),
+	).toEqual([]);
+});

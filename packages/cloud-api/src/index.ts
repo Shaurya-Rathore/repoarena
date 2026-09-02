@@ -35,6 +35,10 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/organizations/{organizationId}/benchmarks": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/runs": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/schedules": { get: {}, post: {} },
+		"/api/v1/organizations/{organizationId}/schedules/{scheduleId}": {
+			put: {},
+			delete: {},
+		},
 		"/api/v1/organizations/{organizationId}/runners": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/api-keys": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/audit-events": { get: {} },
@@ -223,6 +227,12 @@ const bodySchemas = {
 			benchmark_version_id: uuid,
 			cadence: z.enum(["HOURLY", "DAILY", "WEEKLY"]),
 			next_run_at: z.string().datetime(),
+		})
+		.strict(),
+	scheduleUpdate: z
+		.object({
+			enabled: z.boolean(),
+			next_run_at: z.string().datetime().optional(),
 		})
 		.strict(),
 	readiness: z
@@ -1002,6 +1012,30 @@ export function createCloudApi(options: {
 					},
 					requestId,
 				);
+			const schedule = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/schedules\/([^/]+)$/,
+			);
+			if (schedule?.[1] && schedule[2] && request.method === "PUT") {
+				const body = bodySchemas.scheduleUpdate.parse(await readBody(request));
+				await cloud.setSchedule(
+					await authenticate(request, true),
+					uuid.parse(schedule[1]),
+					uuid.parse(schedule[2]),
+					{
+						enabled: body.enabled,
+						...(body.next_run_at ? { nextRunAt: body.next_run_at } : {}),
+					},
+				);
+				return json(response, 200, { data: { updated: true } }, requestId);
+			}
+			if (schedule?.[1] && schedule[2] && request.method === "DELETE") {
+				await cloud.deleteSchedule(
+					await authenticate(request, true),
+					uuid.parse(schedule[1]),
+					uuid.parse(schedule[2]),
+				);
+				return json(response, 200, { data: { deleted: true } }, requestId);
+			}
 			const runs = path.match(/^\/api\/v1\/organizations\/([^/]+)\/runs$/);
 			if (runs?.[1] && request.method === "GET") {
 				const organizationId = uuid.parse(runs[1]);
