@@ -1,6 +1,6 @@
 # Integrated RepoArena 1.0 product audit
 
-Date: 2026-09-02  
+Date: 2026-09-03
 Canonical branch: `integration/repoarena-1.0`
 
 ## Ancestry and integration strategy
@@ -47,7 +47,7 @@ All historical audit files remain present and unchanged:
 | --- | --- | --- | --- | --- |
 | Branch ancestry and minimal integration | Git history through `feat/cloud-product` | ancestry checks and preserved atomic history above | `git merge-base --is-ancestor ...` | VERIFIED |
 | Package graph and build order | workspace manifests, TypeScript project graph, `pnpm-lock.yaml` | all 40 buildable workspace projects build in dependency order | `pnpm build && pnpm typecheck` | VERIFIED |
-| Migration continuity | `packages/cloud-db/migrations/0001_cloud_core.sql` through `0006_public_repository_ids.sql` | empty-install, upgrade, constraints, advisory locking, rollback | `pnpm db:migrate`; `pnpm --filter @repoarena/cloud-db test:integration` | VERIFIED |
+| Migration continuity | `packages/cloud-db/migrations/0001_cloud_core.sql` through `0007_billing.sql` | empty-install, upgrade, constraints, advisory locking, rollback | `pnpm db:migrate`; `pnpm --filter @repoarena/cloud-db test:integration` | VERIFIED |
 | PostgreSQL cloud integration | cloud DB/core/API packages | real PostgreSQL 18.6 transactions, tenancy, queue/lease, API | cloud DB/core/API integration commands below | VERIFIED |
 | Canonical cross-subsystem flow | benchmark engine, cloud core, GitHub integration, publishing, cloud product | `packages/cloud-product/src/integrated-product.e2e.test.ts` | `pnpm --filter @repoarena/cloud-product test:e2e` with `DATABASE_URL` | VERIFIED |
 | Runner/job/GitHub provenance | cloud core and GitHub integration | signed push creates one canonical run/job; authenticated runner claims and submits | cloud-product integrated E2E; GitHub integration suite | VERIFIED |
@@ -64,6 +64,38 @@ All historical audit files remain present and unchanged:
 | Built cloud product | cloud-product and production launcher | compiled server serves landing, leaderboard, and auth redirect | `pnpm test:cloud-product-built` | VERIFIED |
 | Docker boundary | sandbox-docker | production provider remains contract-tested; integration uses LocalSandboxProvider | `pnpm --filter @repoarena/sandbox-docker test:unit` | VERIFIED |
 
+## Verified billing integration
+
+`integration/repoarena-1.0` at `7f39f9b` was confirmed as an ancestor of
+`feat/billing` at `a4bad99`. The canonical branch was updated by `git merge
+--ff-only feat/billing`, preserving the verified billing commits `c6a0ae1`,
+`a870389`, and `a4bad99` without a merge rewrite or cherry-pick.
+
+Migration `0007_billing.sql` follows the existing `0001`–`0006` sequence. The
+real PostgreSQL suite passed empty-database migration, supported upgrade,
+constraints, transaction/locking behavior, cloud-core integration, billing
+integration, and cloud API integration.
+
+The connected cloud API flow begins with Community entitlements, creates an
+owner-authorized deterministic Checkout, proves the browser success path grants
+nothing, ingests an exact-raw-body signed Stripe event, reconciles provider truth
+to the paid canonical entitlement, and then continues through GitHub provenance,
+benchmark job claim, result persistence, and cloud retrieval. The integrated
+cloud-product E2E continues canonical results through explicit publishing,
+leaderboard, share, and badge surfaces.
+
+BYOK model usage remains immutable execution analytics paid directly to the
+model provider. The Stripe provider contract receives only RepoArena customer,
+plan/price, subscription, Checkout, and Portal operations; no model-token usage
+or execution-cost record enters Stripe request formation. Product pricing and
+billing surfaces display this separation explicitly.
+
+Billing, execution, GitHub, cloud, publication, and product tests scan safe
+event projections, audit metadata, stored results, reports, checks, API/UI, and
+public surfaces for provider, evaluator, installation, webhook, API-key, runner,
+Stripe-key, and Stripe-webhook sentinels. The integrated regression remained
+secret-free.
+
 ## Exact closeout commands
 
 The canonical database variables are loaded from `.env.local` for PostgreSQL
@@ -76,6 +108,7 @@ psql --version
 set -a; source .env.local; set +a; pnpm db:migrate
 set -a; source .env.local; set +a; pnpm --filter @repoarena/cloud-db test:integration
 set -a; source .env.local; set +a; pnpm --filter @repoarena/cloud-core test:integration
+set -a; source .env.local; set +a; pnpm --filter @repoarena/billing test:integration
 set -a; source .env.local; set +a; pnpm --filter @repoarena/cloud-api test:integration
 set -a; source .env.local; set +a; pnpm --filter @repoarena/github-integration test:integration
 set -a; source .env.local; set +a; pnpm --filter @repoarena/public-publishing test:integration
@@ -83,6 +116,7 @@ set -a; source .env.local; set +a; pnpm --filter @repoarena/cloud-product test:e
 pnpm --filter repoarena test:unit
 pnpm --filter @repoarena/github-action test:e2e
 pnpm test:cloud-product-built
+set -a; source .env.local; set +a; pnpm test:integration
 node packages/cli/dist/index.js doctor --json
 node packages/cli/dist/index.js tasks list --json
 pnpm format:check
@@ -94,6 +128,6 @@ pnpm verify
 
 ## Canonical continuation point
 
-All remaining RepoArena 1.0 branches, including billing and hosted-runner work,
-must branch from the verified tip of `integration/repoarena-1.0`, not from an
-individual subsystem branch.
+All remaining RepoArena 1.0 branches, including hosted-runner work, must branch
+from the verified tip of `integration/repoarena-1.0`, not from an individual
+subsystem branch.
