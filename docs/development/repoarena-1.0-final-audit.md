@@ -27,9 +27,9 @@ Release candidate: `1.0.0` on `release/repoarena-1.0`.
 
 ## Performance record
 
-On the 2026-09-07 local Node.js 24 release environment, the bounded 200-request,
-concurrency-20 built HTTP baseline completed with zero errors at 1,823 requests/s,
-p50 4.48 ms, p95 36.08 ms, and maximum 39.09 ms. These values are environmental
+On the 2026-09-07 local Node.js 24 release environment, the final bounded
+200-request, concurrency-20 built HTTP baseline completed with zero errors at
+1,339 requests/s, p50 5.90 ms, p95 44.72 ms, and maximum 50.30 ms. These values are environmental
 regression evidence, not an availability or production-capacity guarantee.
 
 ## Known limitations and external checks

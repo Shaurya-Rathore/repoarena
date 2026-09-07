@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { loadConfig, writeConfigAtomic } from "@repoarena/config";
-import { RepoArenaError } from "@repoarena/core";
+import { REPOARENA_VERSION, RepoArenaError } from "@repoarena/core";
 import { GitRepository } from "@repoarena/git";
 import {
 	exportRecommendedProfile,
@@ -346,7 +346,7 @@ export function createLocalProductServer(
 						branch,
 						commit: identity?.head ?? null,
 						remote: identity?.remote ?? null,
-						version: options.version ?? "0.1.0",
+						version: options.version ?? REPOARENA_VERSION,
 					},
 				});
 			}
@@ -543,7 +543,7 @@ export function createLocalProductServer(
 				const run = await optimize({
 					searchSpace: space,
 					repositoryCommit: identity.head,
-					runnerVersion: options.version ?? "0.1.0",
+					runnerVersion: options.version ?? REPOARENA_VERSION,
 					executor: options.optimizerExecutor,
 				});
 				await atomicJson(join(optimizationDirectory, `${run.id}.json`), run);
