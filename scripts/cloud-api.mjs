@@ -14,6 +14,10 @@ import {
 } from "../packages/github-integration/dist/index.js";
 import { GitHubProvider } from "../packages/github-provider/dist/index.js";
 import {
+	HostedComputeService,
+	HttpHostedComputeProvider,
+} from "../packages/hosted-compute/dist/index.js";
+import {
 	FileObjectStorage,
 	S3ObjectStorage,
 } from "../packages/object-storage/dist/index.js";
@@ -51,6 +55,18 @@ const githubProvider =
 			})
 		: undefined;
 const cloud = new CloudService(database);
+const hosted =
+	process.env.HOSTED_COMPUTE_PROVISIONER_URL &&
+	process.env.HOSTED_COMPUTE_PROVISIONER_TOKEN
+		? new HostedComputeService(
+				database,
+				cloud,
+				new HttpHostedComputeProvider(
+					process.env.HOSTED_COMPUTE_PROVISIONER_URL,
+					process.env.HOSTED_COMPUTE_PROVISIONER_TOKEN,
+				),
+			)
+		: undefined;
 const github =
 	githubProvider && process.env.GITHUB_WEBHOOK_SECRET
 		? new GitHubIntegration(
@@ -92,6 +108,7 @@ const api = createCloudApi({
 	...(github ? { github } : {}),
 	githubActions,
 	...(billing ? { billing } : {}),
+	...(hosted ? { hosted } : {}),
 });
 const address = await api.start(
 	"127.0.0.1",

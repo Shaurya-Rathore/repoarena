@@ -19,6 +19,7 @@ import type {
 	GitHubIntegration,
 	TriggerPolicy,
 } from "@repoarena/github-integration";
+import type { HostedComputeService } from "@repoarena/hosted-compute";
 import type { ObjectStorage } from "@repoarena/object-storage";
 import { PublishingService } from "@repoarena/public-publishing";
 import { z } from "zod";
@@ -44,6 +45,11 @@ export const cloudApiContract = Object.freeze({
 		"/api/v1/organizations/{organizationId}/api-keys": { get: {}, post: {} },
 		"/api/v1/organizations/{organizationId}/audit-events": { get: {} },
 		"/api/v1/organizations/{organizationId}/usage": { get: {} },
+		"/api/v1/organizations/{organizationId}/hosted/resource-classes": {
+			get: {},
+		},
+		"/api/v1/organizations/{organizationId}/hosted/executions": { get: {} },
+		"/api/v1/organizations/{organizationId}/hosted/usage": { get: {} },
 		"/api/v1/organizations/{organizationId}/billing": { get: {} },
 		"/api/v1/organizations/{organizationId}/billing/checkout": { post: {} },
 		"/api/v1/organizations/{organizationId}/billing/portal": { post: {} },
@@ -179,6 +185,18 @@ const bodySchemas = {
 				})
 				.strict()
 				.default({}),
+			execution_mode: z
+				.enum(["SELF_HOSTED", "GITHUB_ACTIONS", "HOSTED_REPOARENA"])
+				.default("SELF_HOSTED"),
+			hosted: z
+				.object({
+					resource_class: z.enum(["SMALL", "MEDIUM", "LARGE"]),
+					max_wall_time_ms: z.number().int().positive(),
+					network_policy: z.enum(["NETWORK_DISABLED", "RESTRICTED_EGRESS"]),
+					compute_budget_micros: z.number().int().positive(),
+				})
+				.strict()
+				.optional(),
 		})
 		.strict(),
 	runner: z
@@ -415,6 +433,7 @@ export function createCloudApi(options: {
 	github?: GitHubIntegration;
 	githubActions?: GitHubActionsAuth;
 	billing?: BillingService;
+	hosted?: HostedComputeService;
 }) {
 	const cloud = new CloudService(options.database, options.now);
 	const publishing = new PublishingService(
@@ -1298,17 +1317,50 @@ export function createCloudApi(options: {
 						"Idempotency-Key is required.",
 					);
 				const body = bodySchemas.run.parse(await readBody(request));
+				if (body.execution_mode === "HOSTED_REPOARENA") {
+					if (!options.hosted || !body.hosted)
+						throw new RepoArenaError(
+							"CONFIG_INVALID",
+							"Hosted compute configuration is required.",
+						);
+					await options.hosted.preflight(principal, {
+						organizationId,
+						resourceClassId: body.hosted.resource_class,
+						maxWallTimeMs: body.hosted.max_wall_time_ms,
+						networkPolicy: body.hosted.network_policy,
+						computeBudgetMicros: body.hosted.compute_budget_micros,
+					});
+				}
+				const created = await cloud.createRun(principal, {
+					organizationId,
+					repositoryId: body.repository_id,
+					benchmarkVersionId: body.benchmark_version_id,
+					idempotencyKey: key,
+					budget: body.budget,
+				});
+				const hostedExecution =
+					body.execution_mode === "HOSTED_REPOARENA" &&
+					body.hosted &&
+					options.hosted
+						? await options.hosted.request(principal, {
+								organizationId,
+								runId: created.runId,
+								jobId: created.jobId,
+								resourceClassId: body.hosted.resource_class,
+								maxWallTimeMs: body.hosted.max_wall_time_ms,
+								networkPolicy: body.hosted.network_policy,
+								computeBudgetMicros: body.hosted.compute_budget_micros,
+							})
+						: null;
 				return json(
 					response,
 					201,
 					{
-						data: await cloud.createRun(principal, {
-							organizationId,
-							repositoryId: body.repository_id,
-							benchmarkVersionId: body.benchmark_version_id,
-							idempotencyKey: key,
-							budget: body.budget,
-						}),
+						data: {
+							...created,
+							execution_mode: body.execution_mode,
+							hosted: hostedExecution,
+						},
 					},
 					requestId,
 				);
@@ -1330,11 +1382,15 @@ export function createCloudApi(options: {
 					requestId,
 				);
 			if (run?.[1] && run[2] && request.method === "DELETE") {
-				await cloud.cancelRun(
-					await authenticate(request, true),
-					uuid.parse(run[1]),
-					uuid.parse(run[2]),
-				);
+				const principal = await authenticate(request, true);
+				const organizationId = uuid.parse(run[1]);
+				const runId = uuid.parse(run[2]);
+				if (
+					options.hosted &&
+					(await options.hosted.cancelRun(principal, organizationId, runId))
+				)
+					return json(response, 200, { data: { cancelled: true } }, requestId);
+				await cloud.cancelRun(principal, organizationId, runId);
 				return json(response, 200, { data: { cancelled: true } }, requestId);
 			}
 			const keys = path.match(/^\/api\/v1\/organizations\/([^/]+)\/api-keys$/);
@@ -1455,6 +1511,70 @@ export function createCloudApi(options: {
 					},
 					requestId,
 				);
+			const hostedResources = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/hosted\/resource-classes$/,
+			);
+			if (hostedResources?.[1] && request.method === "GET") {
+				if (!options.hosted)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Hosted compute is unavailable.",
+					);
+				const organizationId = uuid.parse(hostedResources[1]);
+				await cloud.authorize(
+					await authenticate(request),
+					organizationId,
+					"ORG_READ",
+				);
+				return json(
+					response,
+					200,
+					{ data: await options.hosted.resourceClasses() },
+					requestId,
+				);
+			}
+			const hostedExecutions = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/hosted\/executions$/,
+			);
+			if (hostedExecutions?.[1] && request.method === "GET") {
+				if (!options.hosted)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Hosted compute is unavailable.",
+					);
+				return json(
+					response,
+					200,
+					{
+						data: await options.hosted.list(
+							await authenticate(request),
+							uuid.parse(hostedExecutions[1]),
+						),
+					},
+					requestId,
+				);
+			}
+			const hostedUsage = path.match(
+				/^\/api\/v1\/organizations\/([^/]+)\/hosted\/usage$/,
+			);
+			if (hostedUsage?.[1] && request.method === "GET") {
+				if (!options.hosted)
+					throw new RepoArenaError(
+						"CONFIG_INVALID",
+						"Hosted compute is unavailable.",
+					);
+				return json(
+					response,
+					200,
+					{
+						data: await options.hosted.usage(
+							await authenticate(request),
+							uuid.parse(hostedUsage[1]),
+						),
+					},
+					requestId,
+				);
+			}
 			if (request.method === "POST" && path === "/api/v1/runner/heartbeat") {
 				const principal = await authenticate(request, true);
 				if (principal.type !== "RUNNER")
@@ -1467,6 +1587,7 @@ export function createCloudApi(options: {
 					((await readBody(request)) as { capabilities?: unknown })
 						.capabilities,
 				);
+				await options.hosted?.runnerHeartbeat(principal.runnerId);
 				return json(response, 200, { data: { accepted: true } }, requestId);
 			}
 			if (request.method === "POST" && path === "/api/v1/runner/jobs/claim") {
@@ -1476,12 +1597,10 @@ export function createCloudApi(options: {
 						"FORBIDDEN",
 						"Runner authentication required.",
 					);
-				return json(
-					response,
-					200,
-					{ data: await cloud.claimJob(principal) },
-					requestId,
-				);
+				const claimed = await cloud.claimJob(principal);
+				if (claimed)
+					await options.hosted?.runnerClaimed(principal.runnerId, claimed.id);
+				return json(response, 200, { data: claimed }, requestId);
 			}
 			const result = path.match(/^\/api\/v1\/runner\/jobs\/([^/]+)\/result$/);
 			if (result?.[1] && request.method === "POST") {
@@ -1497,11 +1616,17 @@ export function createCloudApi(options: {
 						"Runner authentication required.",
 					);
 				const body = bodySchemas.result.parse(await readBody(request));
+				const submitted = await cloud.submitResult(
+					principal,
+					jobId,
+					body.result,
+				);
+				await options.hosted?.resultSubmitted(principal.runnerId, jobId);
 				return json(
 					response,
 					200,
 					{
-						data: await cloud.submitResult(principal, jobId, body.result),
+						data: submitted,
 					},
 					requestId,
 				);

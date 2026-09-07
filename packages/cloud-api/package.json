@@ -17,6 +17,7 @@
 		"@repoarena/cloud-db": "workspace:*",
 		"@repoarena/core": "workspace:*",
 		"@repoarena/github-integration": "workspace:*",
+		"@repoarena/hosted-compute": "workspace:*",
 		"@repoarena/object-storage": "workspace:*",
 		"@repoarena/public-publishing": "workspace:*",
 		"zod": "3.24.2"

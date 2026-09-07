@@ -28,6 +28,9 @@
 		"billing:reconcile": "node scripts/billing-reconcile.mjs",
 		"billing:webhooks": "node scripts/billing-webhooks.mjs",
 		"billing:stripe-smoke": "node scripts/stripe-smoke.mjs",
+		"hosted:reconcile": "node scripts/hosted-reconcile.mjs",
+		"hosted:control": "node scripts/hosted-control.mjs",
+		"hosted:provider-smoke": "node scripts/hosted-compute-smoke.mjs",
 		"test:postgres": "pnpm --filter @repoarena/cloud-db test:integration",
 		"skills:validate": "node scripts/validate-skills.mjs"
 	},
