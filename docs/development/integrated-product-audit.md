@@ -47,7 +47,7 @@ All historical audit files remain present and unchanged:
 | --- | --- | --- | --- | --- |
 | Branch ancestry and minimal integration | Git history through `feat/cloud-product` | ancestry checks and preserved atomic history above | `git merge-base --is-ancestor ...` | VERIFIED |
 | Package graph and build order | workspace manifests, TypeScript project graph, `pnpm-lock.yaml` | all 40 buildable workspace projects build in dependency order | `pnpm build && pnpm typecheck` | VERIFIED |
-| Migration continuity | `packages/cloud-db/migrations/0001_cloud_core.sql` through `0007_billing.sql` | empty-install, upgrade, constraints, advisory locking, rollback | `pnpm db:migrate`; `pnpm --filter @repoarena/cloud-db test:integration` | VERIFIED |
+| Migration continuity | `packages/cloud-db/migrations/0001_cloud_core.sql` through `0008_hosted_compute.sql` | empty-install, upgrade, constraints, advisory locking, rollback | `pnpm db:migrate`; `pnpm --filter @repoarena/cloud-db test:integration` | VERIFIED |
 | PostgreSQL cloud integration | cloud DB/core/API packages | real PostgreSQL 18.6 transactions, tenancy, queue/lease, API | cloud DB/core/API integration commands below | VERIFIED |
 | Canonical cross-subsystem flow | benchmark engine, cloud core, GitHub integration, publishing, cloud product | `packages/cloud-product/src/integrated-product.e2e.test.ts` | `pnpm --filter @repoarena/cloud-product test:e2e` with `DATABASE_URL` | VERIFIED |
 | Runner/job/GitHub provenance | cloud core and GitHub integration | signed push creates one canonical run/job; authenticated runner claims and submits | cloud-product integrated E2E; GitHub integration suite | VERIFIED |
@@ -96,6 +96,47 @@ public surfaces for provider, evaluator, installation, webhook, API-key, runner,
 Stripe-key, and Stripe-webhook sentinels. The integrated regression remained
 secret-free.
 
+## Verified hosted-runner integration
+
+`integration/repoarena-1.0` at `9274865` was confirmed as an ancestor of
+`feat/hosted-runners` at `c40329b`. The canonical branch was updated with
+`git merge --ff-only feat/hosted-runners`, preserving commits `3309ca2`,
+`4b3dd4a`, `c70bc6d`, `3a817e0`, and `c40329b` without a merge rewrite,
+squash, or cherry-pick.
+
+Migration `0008_hosted_compute.sql` follows `0001`–`0007` with unique ordering.
+The real PostgreSQL migration suite passed both an empty database and the
+supported upgrade fixture. Its constraints cover versioned resource classes,
+one hosted lease per durable job, one ephemeral runner per lease, capacity
+indexes, pricing snapshots, and one finalized usage record per lease.
+
+The hosted connected flow starts with an Enterprise-entitled organization and
+canonical repository/benchmark job, performs a server-side worst-case estimate
+and transactional budget/capacity reservation, provisions through the
+deterministic provider, bootstraps an exact-lease runner, heartbeats, claims the
+existing durable job, submits the canonical public result, finalizes compute
+metering, revokes the credential, and terminates the resource. The existing
+cloud-product E2E independently carries the canonical run through GitHub Check,
+explicit publication, leaderboard, share page, and badge. Local sandbox,
+self-hosted runner, and built GitHub Action regressions remain passing.
+
+RepoArena subscription state, model-provider BYOK cost, and RepoArena hosted
+compute usage remain distinct domain and UI categories. V1 model and compute
+pricing snapshots remain immutable after V2 configuration changes. Hosted
+request and provisioning paths enforce current entitlements, hard run/monthly
+budgets, queue caps, global capacity, organization concurrency, server resource
+classes, and absolute wall time before additional spend.
+
+Concurrent provisioners serialize final-slot acquisition through PostgreSQL.
+Cancellation, lost heartbeat, provider disappearance, absolute timeout, and
+termination failure finalize or retain cleanup-visible state. Reconciliation
+terminates only resources with matching RepoArena, environment, deployment,
+and lease identity; the foreign-resource regression proves unrelated resources
+are never terminated. Sentinel coverage keeps evaluator/reference, provider,
+GitHub, API/runner, Stripe, bootstrap, and hosted-provider secrets out of public
+results, APIs, UI, audit diagnostics, reports, provider labels, publications,
+leaderboard, badges, and GitHub summaries.
+
 ## Exact closeout commands
 
 The canonical database variables are loaded from `.env.local` for PostgreSQL
@@ -113,6 +154,8 @@ set -a; source .env.local; set +a; pnpm --filter @repoarena/cloud-api test:integ
 set -a; source .env.local; set +a; pnpm --filter @repoarena/github-integration test:integration
 set -a; source .env.local; set +a; pnpm --filter @repoarena/public-publishing test:integration
 set -a; source .env.local; set +a; pnpm --filter @repoarena/cloud-product test:e2e
+set -a; source .env.local; set +a; pnpm --filter @repoarena/hosted-compute test:integration
+pnpm --filter @repoarena/hosted-compute test:unit
 pnpm --filter repoarena test:unit
 pnpm --filter @repoarena/github-action test:e2e
 pnpm test:cloud-product-built
@@ -128,6 +171,6 @@ pnpm verify
 
 ## Canonical continuation point
 
-All remaining RepoArena 1.0 branches, including hosted-runner work, must branch
+All remaining RepoArena 1.0 branches must branch
 from the verified tip of `integration/repoarena-1.0`, not from an individual
 subsystem branch.
