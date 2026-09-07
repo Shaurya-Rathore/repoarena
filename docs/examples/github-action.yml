@@ -1,0 +1,19 @@
+name: RepoArena
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1634ceea73d27597364c9af683
+      - uses: repoarena/repoarena@v1
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          agents: codex
+          fail-on-unsolved: "true"
+          max-attempts: "20"
+          max-duration-ms: "1800000"

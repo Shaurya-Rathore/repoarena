@@ -1,0 +1,37 @@
+name: Release candidate
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: repoarena
+          POSTGRES_PASSWORD: repoarena
+          POSTGRES_DB: repoarena_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U repoarena"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://repoarena:repoarena@127.0.0.1:5432/repoarena_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1634ceea73d27597364c9af683
+      - uses: actions/setup-node@1e60f620b9541dca151540d0c24ee89e2d19e259
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: corepack enable && corepack prepare pnpm@9.15.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:verify
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: repoarena-${{ github.ref_name }}
+          path: release-artifacts/
+          if-no-files-found: error

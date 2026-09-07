@@ -1,0 +1,8 @@
+schema: repoarena.config/v1
+benchmark:
+  name: example
+  tasks_dir: .repoarena/tasks
+runner:
+  backend: local
+  timeout_seconds: 900
+  network: none

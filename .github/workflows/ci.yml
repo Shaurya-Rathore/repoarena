@@ -1,0 +1,36 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: repoarena
+          POSTGRES_PASSWORD: repoarena
+          POSTGRES_DB: repoarena_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U repoarena"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://repoarena:repoarena@127.0.0.1:5432/repoarena_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1634ceea73d27597364c9af683
+      - uses: actions/setup-node@1e60f620b9541dca151540d0c24ee89e2d19e259
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: corepack enable && corepack prepare pnpm@9.15.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:secret-scan
+      - run: pnpm verify
+      - run: pnpm test:integration
+      - run: pnpm --filter @repoarena/cloud-product test:e2e
+      - run: pnpm --filter @repoarena/github-action test:e2e
