@@ -132,6 +132,9 @@ describe("cloud product server", () => {
 		expect(html).toContain("Billing");
 		expect(html).toContain("Continue to secure Stripe Checkout");
 		expect(html).toContain("Model-provider usage is separate");
+		expect(html).toContain("RepoArena hosted");
+		expect(html).toContain("compute_budget_micros");
+		expect(html).toContain("Three distinct categories");
 	});
 
 	it("does not reuse authenticated organization checks across sessions", async () => {
