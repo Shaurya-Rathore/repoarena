@@ -206,6 +206,9 @@ importers:
       '@repoarena/github-integration':
         specifier: workspace:*
         version: link:../github-integration
+      '@repoarena/hosted-compute':
+        specifier: workspace:*
+        version: link:../hosted-compute
       '@repoarena/object-storage':
         specifier: workspace:*
         version: link:../object-storage
@@ -340,6 +343,18 @@ importers:
         version: 3.24.2
 
   packages/github-provider: {}
+
+  packages/hosted-compute:
+    dependencies:
+      '@repoarena/cloud-core':
+        specifier: workspace:*
+        version: link:../cloud-core
+      '@repoarena/cloud-db':
+        specifier: workspace:*
+        version: link:../cloud-db
+      '@repoarena/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/integrity:
     dependencies:

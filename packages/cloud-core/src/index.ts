@@ -128,6 +128,9 @@ export type Entitlements = Readonly<{
 	api_access: boolean;
 	max_members: number;
 	hosted_compute: boolean;
+	max_hosted_concurrency?: number;
+	allowed_hosted_resource_classes?: readonly string[];
+	max_hosted_wall_time_ms?: number;
 }>;
 export type JobClaim = Readonly<{
 	id: string;
