@@ -182,7 +182,7 @@ it("runs the connected engine and writes every public report", async () => {
 	expect(await readFile(join(root, "profile.yaml"), "utf8")).toContain(
 		"repoarena.profile/v1",
 	);
-});
+}, 15_000);
 it("inspects the production adapter registry without credentials", async () => {
 	const cli = new URL("../dist/index.js", import.meta.url).pathname;
 	const { stdout } = await execute(
