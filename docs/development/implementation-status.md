@@ -1,6 +1,6 @@
 # RepoArena 1.0 implementation status
 
-Updated: 2026-09-02. A state of `VERIFIED` means the listed command passed in
+Updated: 2026-09-07. A state of `VERIFIED` means the listed command passed in
 this workspace; all other states are deliberately conservative.
 
 Canonical integrated product base: `integration/repoarena-1.0`.
@@ -10,6 +10,8 @@ Canonical integrated product base: `integration/repoarena-1.0`.
 - `CLOUD_CORE = VERIFIED`
 - `GITHUB_INTEGRATION = VERIFIED`
 - `CLOUD_PRODUCT = VERIFIED`
+- `BILLING = VERIFIED`
+- `HOSTED_RUNNERS = VERIFIED`
 
 **Execution engine: VERIFIED.** Detailed evidence is recorded in
 `docs/development/execution-engine-final-audit.md`.
@@ -56,6 +58,7 @@ Canonical subsystem state: `CLOUD_PRODUCT = VERIFIED`.
 | GitHub App and Actions | VERIFIED | GitHub provider/integration, cloud API, Action, migration 0003, connected tests | focused GitHub/Action/API suites; real PostgreSQL; `pnpm verify` | App JWT/token lifecycle, tenant-safe installation sync, signed durable webhooks, trigger policy, Checks/comments, bundled Action, OIDC, fork/budget/security boundaries pass. |
 | Public publishing, pages, badges and leaderboard | VERIFIED | `packages/public-publishing`, cloud product/API, migrations 0004 and 0006 | publishing unit/PostgreSQL integration; product unit/E2E | Explicit immutable projections, private identity redaction, unpublish, comparability policy, share pages, stable repository profiles and SVG badges pass. |
 | Billing and entitlements | VERIFIED | `packages/billing`, `packages/billing-stripe`, migration 0007, cloud API/product | Stripe provider/unit contracts, signed webhook and real-PostgreSQL billing/API E2E; `pnpm verify` | Owner-scoped Checkout/Portal, durable idempotent reconciliation, invoices, lifecycle policies and canonical entitlement synchronization pass while BYOK model costs remain separate. |
+| Hosted runners and compute control plane | VERIFIED | `packages/hosted-compute`, migration 0008, cloud API/product, operator scripts | provider unit contracts and real-PostgreSQL lifecycle/capacity/security integration; `pnpm verify` | Optional hosted mode uses the canonical runner protocol with versioned limits, transactional capacity/budgets, ephemeral credentials, immutable metering, timeout/cancellation and conservative orphan cleanup. |
 | Cloud frontend | VERIFIED | `packages/cloud-product`, `packages/public-publishing`, cloud API/core extensions | product unit/real-PostgreSQL E2E, explicit built-server smoke, publishing/security suites | Same-origin production application, authenticated management surfaces, explicit public sharing, comparable leaderboard and stable badges are connected. |
 | Observability, security and operations | IN_PROGRESS | cloud health/readiness, safe logger, metrics, audit, rate limits, operator scripts | cloud API/core integration | Cloud-core observability/security foundation is verified; later deployment-wide tracing/backups remain outside this cluster. |
 | Deployment, CI and release | IN_PROGRESS | Compose only | `pnpm verify` | Local compose exists. Add images, deploy/IaC, CI, release validation, backups and docs. |
