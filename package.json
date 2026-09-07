@@ -27,6 +27,7 @@
 		"release:licenses": "node scripts/license-audit.mjs",
 		"release:clean-checkout": "node scripts/clean-checkout-e2e.mjs",
 		"release:performance": "node scripts/release-performance.mjs",
+		"release:publish:check": "node scripts/release-publish-check.mjs",
 		"dev:infra": "docker compose -f infra/compose/docker-compose.dev.yml up -d",
 		"dev:infra:down": "docker compose -f infra/compose/docker-compose.dev.yml down",
 		"db:migrate": "node scripts/db-migrate.mjs",
@@ -43,6 +44,9 @@
 		"hosted:reconcile": "node scripts/hosted-reconcile.mjs",
 		"hosted:control": "node scripts/hosted-control.mjs",
 		"hosted:provider-smoke": "node scripts/hosted-compute-smoke.mjs",
+		"github:smoke": "node scripts/github-smoke.mjs",
+		"s3:smoke": "node scripts/s3-smoke.mjs",
+		"agent:smoke": "node scripts/agent-smoke.mjs",
 		"test:postgres": "pnpm --filter @repoarena/cloud-db test:integration",
 		"skills:validate": "node scripts/validate-skills.mjs"
 	},

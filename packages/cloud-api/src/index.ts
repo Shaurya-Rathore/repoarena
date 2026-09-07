@@ -12,7 +12,7 @@ import {
 	type Permission,
 	type Principal,
 } from "@repoarena/cloud-core";
-import type { Database } from "@repoarena/cloud-db";
+import { schemaCompatibility, type Database } from "@repoarena/cloud-db";
 import { RepoArenaError } from "@repoarena/core";
 import type {
 	GitHubActionsAuth,
@@ -664,17 +664,19 @@ export function createCloudApi(options: {
 					.query("SELECT 1")
 					.then(() => "ok")
 					.catch(() => "unavailable");
-				const migrations = await options.database
-					.query<{ count: string }>(
-						"SELECT count(*)::text AS count FROM schema_migrations",
-					)
-					.then((value) => Number(value.rows[0]?.count ?? 0))
-					.catch(() => 0);
+				const migrations = await schemaCompatibility(options.database).catch(
+					() => ({
+						status: "AHEAD_OR_INCOMPATIBLE" as const,
+						applied: 0,
+						expected: 8,
+					}),
+				);
+				const ready = database === "ok" && migrations.status === "CURRENT";
 				return json(
 					response,
-					database === "ok" && migrations > 0 ? 200 : 503,
+					ready ? 200 : 503,
 					{
-						status: database === "ok" && migrations > 0 ? "ready" : "not_ready",
+						status: ready ? "ready" : "not_ready",
 						dependencies: {
 							database,
 							migrations,

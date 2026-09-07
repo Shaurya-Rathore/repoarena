@@ -79,6 +79,40 @@ const migrationDirectory = join(
 	"..",
 	"migrations",
 );
+export type SchemaCompatibility =
+	| "CURRENT"
+	| "BEHIND"
+	| "AHEAD_OR_INCOMPATIBLE";
+
+export async function schemaCompatibility(
+	database: Database,
+	directory = migrationDirectory,
+): Promise<{ status: SchemaCompatibility; applied: number; expected: number }> {
+	const expectedVersions = (await readdir(directory))
+		.filter((name) => /^\d+_[a-z0-9_]+\.sql$/.test(name))
+		.sort();
+	const result = await database.query<{ version: string }>(
+		"SELECT version FROM schema_migrations ORDER BY version",
+	);
+	const appliedVersions = result.rows.map((row) => row.version);
+	const unknown = appliedVersions.some(
+		(version) => !expectedVersions.includes(version),
+	);
+	const prefixMatches = appliedVersions.every(
+		(version, index) => expectedVersions[index] === version,
+	);
+	const status: SchemaCompatibility =
+		unknown || !prefixMatches
+			? "AHEAD_OR_INCOMPATIBLE"
+			: appliedVersions.length === expectedVersions.length
+				? "CURRENT"
+				: "BEHIND";
+	return {
+		status,
+		applied: appliedVersions.length,
+		expected: expectedVersions.length,
+	};
+}
 export async function migrate(
 	database: Database,
 	directory = migrationDirectory,

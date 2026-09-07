@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, expect, it } from "vitest";
-import { createDatabase, migrate, resetTestDatabase } from "./index.js";
+import {
+	createDatabase,
+	migrate,
+	resetTestDatabase,
+	schemaCompatibility,
+} from "./index.js";
 
 const source = process.env.DATABASE_URL ?? "";
 const parsed = new URL(source);
@@ -74,6 +79,34 @@ it("serializes concurrent migration startup with an advisory lock", async () => 
 	await Promise.all([migrate(database), migrate(database)]);
 	const rows = await database.query("SELECT version FROM schema_migrations");
 	expect(rows.rowCount).toBe(8);
+});
+
+it("classifies current, behind, and incompatible schema versions", async () => {
+	expect(await schemaCompatibility(database)).toMatchObject({
+		status: "CURRENT",
+		expected: 8,
+	});
+	const latest = await database.query<{ checksum: string }>(
+		"DELETE FROM schema_migrations WHERE version='0008_hosted_compute.sql' RETURNING checksum",
+	);
+	expect(await schemaCompatibility(database)).toMatchObject({
+		status: "BEHIND",
+		applied: 7,
+	});
+	await database.query(
+		"INSERT INTO schema_migrations(version,checksum) VALUES('0008_hosted_compute.sql',$1)",
+		[latest.rows[0]?.checksum],
+	);
+	await database.query(
+		"INSERT INTO schema_migrations(version,checksum) VALUES('9999_unknown.sql',$1)",
+		["0".repeat(64)],
+	);
+	expect(await schemaCompatibility(database)).toMatchObject({
+		status: "AHEAD_OR_INCOMPATIBLE",
+	});
+	await database.query(
+		"DELETE FROM schema_migrations WHERE version='9999_unknown.sql'",
+	);
 });
 
 it("migrates a supported v1 fixture forward without losing data", async () => {
