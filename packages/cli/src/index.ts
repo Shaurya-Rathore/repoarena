@@ -20,7 +20,11 @@ import {
 	type BenchmarkTask,
 } from "@repoarena/benchmark-engine";
 import { loadConfig } from "@repoarena/config";
-import { contentHash, RepoArenaError } from "@repoarena/core";
+import {
+	contentHash,
+	REPOARENA_VERSION,
+	RepoArenaError,
+} from "@repoarena/core";
 import { GitRepository } from "@repoarena/git";
 import { createLocalProductServer } from "@repoarena/local-product";
 import {
@@ -258,7 +262,7 @@ async function executeOptimizationTrial(
 			"runs",
 			`optimization-${candidate.id}.json`,
 		),
-		runner_version: "0.1.0",
+		runner_version: REPOARENA_VERSION,
 		sandbox_id: "local",
 		sandbox_factory: (workspace) => new LocalSandboxProvider(workspace),
 	});
@@ -279,7 +283,7 @@ async function executeOptimizationTrial(
 const program = new Command()
 	.name("repoarena")
 	.description("Local-first coding-agent benchmarks")
-	.version("0.1.0");
+	.version(REPOARENA_VERSION);
 program
 	.command("init")
 	.option("--yes", "non-interactive confirmation")
@@ -578,8 +582,20 @@ tasks
 			id,
 			title: options.title,
 			prompt: options.prompt,
-			base_commit: baseCommit,
-			verification: { required: [{ command: options.verify }] },
+			source: { type: "curated", base_commit: baseCommit },
+			verification: {
+				required: [
+					{
+						id: "required",
+						command: { shell: true, command: options.verify },
+					},
+				],
+			},
+			provenance: {
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				created_by: "repoarena-cli",
+			},
 		});
 		const path = join(taskDir(), `${id}.yaml`);
 		await writeFile(path, stringify(task));
@@ -768,7 +784,7 @@ program
 			parallelism: Number(options.parallel),
 			pricing: { version: "unpriced", prices: [] },
 			state_path: statePath,
-			runner_version: "0.1.0",
+			runner_version: REPOARENA_VERSION,
 			sandbox_id: options.sandbox,
 			sandbox_factory: (workspace) =>
 				options.sandbox === "docker"
@@ -839,7 +855,7 @@ program
 		const run = await optimize({
 			searchSpace: space,
 			repositoryCommit: identity.head,
-			runnerVersion: "0.1.0",
+			runnerVersion: REPOARENA_VERSION,
 			executor: executeOptimizationTrial,
 		});
 		const statePath = join(
@@ -876,7 +892,7 @@ program
 			root,
 			host: options.host,
 			port: Number(options.port),
-			version: "0.1.0",
+			version: REPOARENA_VERSION,
 			optimizerExecutor: executeOptimizationTrial,
 		});
 		const address = await local.start();
@@ -894,7 +910,15 @@ program
 	.command("version")
 	.option("--json")
 	.action((options) =>
-		output({ cli: "0.1.0", protocol: "1", evaluator: "1" }, options.json),
+		output(
+			{
+				version: REPOARENA_VERSION,
+				commit: process.env.REPOARENA_BUILD_COMMIT ?? "unknown",
+				protocol: "1",
+				evaluator: "1",
+			},
+			options.json,
+		),
 	);
 program.parseAsync().catch((error: unknown) => {
 	if (error instanceof RepoArenaError) {

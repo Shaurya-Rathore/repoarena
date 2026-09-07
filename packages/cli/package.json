@@ -1,16 +1,23 @@
 {
 	"name": "repoarena",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"private": false,
 	"type": "module",
-	"bin": { "repoarena": "./dist/index.js" },
-	"exports": "./dist/index.js",
+	"bin": {
+		"repoarena": "./dist/index.cjs"
+	},
+	"exports": "./dist/index.cjs",
+	"files": ["dist/index.cjs", "README.md"],
+	"engines": {
+		"node": ">=24 <25"
+	},
+	"license": "Apache-2.0",
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
+		"build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.cjs",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"test:unit": "vitest run --passWithNoTests"
 	},
-	"dependencies": {
+	"devDependencies": {
 		"@repoarena/adapter-claude-code": "workspace:*",
 		"@repoarena/adapter-codex": "workspace:*",
 		"@repoarena/adapter-gemini-cli": "workspace:*",
@@ -22,17 +29,17 @@
 		"@repoarena/git": "workspace:*",
 		"@repoarena/local-product": "workspace:*",
 		"@repoarena/optimizer": "workspace:*",
-		"@repoarena/task-discovery": "workspace:*",
-		"@repoarena/task-reconstruction": "workspace:*",
-		"@repoarena/task-validation": "workspace:*",
 		"@repoarena/readiness": "workspace:*",
 		"@repoarena/reporter": "workspace:*",
 		"@repoarena/run-store": "workspace:*",
 		"@repoarena/runner-core": "workspace:*",
 		"@repoarena/sandbox-docker": "workspace:*",
 		"@repoarena/sandbox-local": "workspace:*",
+		"@repoarena/task-discovery": "workspace:*",
+		"@repoarena/task-reconstruction": "workspace:*",
 		"@repoarena/task-spec": "workspace:*",
+		"@repoarena/task-validation": "workspace:*",
 		"commander": "12.1.0",
-		"yaml": "2.6.1"
+		"yaml": "2.8.3"
 	}
 }

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+export const REPOARENA_VERSION = "1.0.0";
+
 export type ErrorCode =
 	| "CONFIG_INVALID"
 	| "TASK_INVALID"
