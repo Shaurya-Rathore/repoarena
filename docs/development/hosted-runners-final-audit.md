@@ -31,9 +31,12 @@ pnpm --filter @repoarena/hosted-compute test:integration
 pnpm --filter @repoarena/cloud-core test:integration
 pnpm --filter @repoarena/cloud-api test:integration
 pnpm --filter @repoarena/cloud-product test:unit
-pnpm --filter @repoarena/cloud-product test:integration
+pnpm --filter @repoarena/cloud-product test:e2e
 pnpm --filter @repoarena/billing test:integration
 pnpm --filter @repoarena/github-integration test:integration
+pnpm --filter @repoarena/github-action test:e2e
+pnpm --filter repoarena test:unit
+pnpm test:integration
 pnpm test:cloud-product-built
 pnpm format:check
 pnpm lint
