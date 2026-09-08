@@ -12,6 +12,7 @@ run("pnpm", ["format:check"]);
 run("pnpm", ["lint"]);
 run("pnpm", ["typecheck"]);
 run("pnpm", ["skills:validate"]);
+run("pnpm", ["docs:check"]);
 run("pnpm", ["release:secret-scan"]);
 run("pnpm", ["audit", "--prod", "--audit-level", "low"]);
 run("pnpm", ["verify"]);

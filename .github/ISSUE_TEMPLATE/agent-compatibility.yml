@@ -1,0 +1,19 @@
+name: Agent compatibility
+description: Report detection or execution trouble with a coding-agent CLI.
+body:
+  - type: input
+    id: version
+    attributes: { label: RepoArena version }
+    validations: { required: true }
+  - type: input
+    id: environment
+    attributes: { label: OS and Node version }
+    validations: { required: true }
+  - type: input
+    id: agent
+    attributes: { label: Agent CLI and version }
+    validations: { required: true }
+  - type: textarea
+    id: command
+    attributes: { label: Command and sanitized output, description: Do not include tokens, credentials, or private repository content. }
+    validations: { required: true }

@@ -1,13 +1,58 @@
-# Contributing
+# Contributing to RepoArena
 
-Use Node.js 24 and pnpm 9.15.0 (`corepack enable`), then run
-`pnpm install --frozen-lockfile`. PostgreSQL integration uses the loopback-only
-`repoarena_test` database derived from `DATABASE_URL`; destructive helpers
-refuse every other database name. Copy `.env.example` to `.env.local`, build,
-and run `pnpm verify` plus `pnpm test:integration` before submitting changes.
+Thanks for helping make coding-agent evaluation more useful and trustworthy.
+You can work on the CLI, agent adapters, task mining, reporters, local UI, tests,
+and docs without any SaaS or provider credentials.
 
-Use deterministic generated Git fixtures and fake adapters. Test adapters are
-enabled only with `NODE_ENV=test REPOARENA_TEST_ADAPTERS=1`. Live provider
-checks are explicit opt-ins and never run in normal CI. Never add credentials,
-private source, evaluator assertions, or reference fixes. Keep commits atomic
-and add behavioral tests. Release candidates use `pnpm release:verify`.
+## Setup
+
+Requirements: Git, Node.js 24, and pnpm 9.15.0 through Corepack.
+
+```sh
+git clone https://github.com/repoarena/repoarena.git
+cd repoarena
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build
+pnpm demo
+```
+
+The demo and normal tests use deterministic fake adapters and never call paid
+models. Run focused package tests while iterating, then before a pull request:
+
+```sh
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm verify
+pnpm docs:check
+```
+
+PostgreSQL is needed only for cloud integration work. Copy `.env.example` to
+`.env.local` and use the loopback-only `repoarena_test` database; destructive
+test helpers refuse other database names. Docker and external provider
+credentials are optional.
+
+## What to change
+
+- CLI: `packages/cli`
+- coding-agent adapters: `packages/adapter-*`
+- historical task mining: `packages/task-*`
+- benchmark execution/reporting: `packages/benchmark-engine`, `packages/reporter`
+- loopback UI: `packages/local-product`
+- docs and examples: `docs`, `examples`
+
+Keep TypeScript strict and add behavioral tests. Treat repository code and agents
+as untrusted: never expose credentials, hidden evaluators, or reference fixes to
+attempt workspaces, logs, fixtures, or reports. Use deterministic canonical
+hashing for persisted protocol values. Do not edit released migrations.
+
+Test adapters are deliberately gated behind both `NODE_ENV=test` and
+`REPOARENA_TEST_ADAPTERS=1`. Optional live-provider smoke harnesses are bounded,
+explicit opt-ins; never enable them in a normal test.
+
+## Pull requests
+
+Keep commits focused. Explain the behavior change, tests run, and documentation
+impact. Sanitise logs before attaching them, and never paste provider tokens or
+private repository content into an issue or pull request.

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">RepoArena — CI for AI coding agents</title>
+  <desc id="desc">Compare Codex, Claude, and Gemini on real bugs from your repository.</desc>
+  <rect width="1280" height="640" fill="#08110f"/>
+  <rect x="72" y="72" width="1136" height="496" rx="28" fill="#10201b" stroke="#55d69e" stroke-width="3"/>
+  <text x="128" y="205" fill="#55d69e" font-family="ui-monospace, monospace" font-size="30" letter-spacing="4">REPOARENA</text>
+  <text x="128" y="310" fill="#f4fff9" font-family="system-ui, sans-serif" font-size="68" font-weight="700">CI for AI coding agents.</text>
+  <text x="128" y="400" fill="#b8c9c1" font-family="system-ui, sans-serif" font-size="34">Codex vs Claude vs Gemini</text>
+  <text x="128" y="465" fill="#b8c9c1" font-family="system-ui, sans-serif" font-size="34">Real bugs from your repo.</text>
+</svg>

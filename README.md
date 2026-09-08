@@ -1,61 +1,147 @@
 # RepoArena
 
-**CI for AI coding agents. Find the best coding agent for your repo.**
+**CI for AI coding agents.**
 
-RepoArena turns real repository tasks into repeatable coding-agent benchmarks.
-It runs clean attempts, keeps hidden verification private, and compares
-correctness, reliability, time, and immutable cost evidence.
+**Find the best coding agent for your repo by replaying real historical bugs.**
+
+RepoArena turns fixes from your Git history into repeatable benchmarks. It gives
+each coding agent a clean checkout, keeps hidden verification out of the agent
+workspace, and compares correctness, reliability, time, and cost.
 
 ```text
-Agent          Solved   pass@1   Median     Cost
-codex          18/20    90%      41s        BYOK
-claude-code    16/20    80%      38s        BYOK
+Example benchmark (deterministic demo data)
+
+Agent          Tasks   Solved   pass@1   Median time   Model cost
+fake-perfect   1       1        100%     0 ms          unavailable
+fake-noop      1       0        0%       0 ms          unavailable
+
+Reports: .repoarena/reports/<run>.json, <run>.html, <run>.xml
+Next: repoarena ui
 ```
 
-## Quick start
+No account is required. Local runs use your existing agent CLI authentication,
+and RepoArena Cloud is optional.
 
-Node.js 24 and pnpm 9 are supported. From a source checkout:
+## Five-minute quick start
+
+RepoArena 1.0 supports Node.js 24. After the npm release:
 
 ```sh
-corepack enable
-pnpm install --frozen-lockfile
-pnpm build
-node packages/cli/dist/index.cjs --version
-node packages/cli/dist/index.cjs init --yes
-node packages/cli/dist/index.cjs doctor
+npm install --global repoarena
+
+cd your-repository
+repoarena init --yes
+repoarena doctor
+repoarena agents detect
+repoarena tasks discover
 ```
 
-The published CLI installs with `npm install --global repoarena`. Run
-`repoarena tasks discover`, validate or generate tasks, then use
-`repoarena run --agent codex --report terminal,json,html,junit` and
-`repoarena ui`. Provider credentials remain yours: normal model usage is BYOK
-and is not included in a RepoArena subscription.
+Pick a discovered candidate with `repoarena tasks generate <commit-sha>`, or
+author a task with `repoarena tasks new`. Then benchmark and open the local UI:
 
-## Product surfaces
+```sh
+repoarena run --agent codex --report terminal,json,html,junit
+repoarena ui
+```
 
-- Local CLI and loopback-only UI for tasks, runs, diffs, readiness, and optimizer.
-- Cloud organizations, durable runners/jobs, schedules, usage, publishing,
-  leaderboard, and badges.
-- GitHub App Checks plus a bundled GitHub Action in [`actions/repoarena`](actions/repoarena).
-- Optional self-hosted and RepoArena-hosted execution with hard capacity and
-  spend limits.
+Until the npm package is published, contributors can use the tested source
+install in [Contributing](CONTRIBUTING.md). The exact packaged flow above runs
+in the release gate.
 
-Supported adapters are Codex, Claude Code, Gemini CLI, and OpenCode. Attempts
-run in contained disposable workspaces; evaluator-private assertions and
-reference fixes never enter the agent phase.
+Want a zero-cost tour first? From a source checkout, run:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm demo
+```
+
+The demo creates a temporary Git repository with a small historical regression,
+runs two deterministic test agents, and writes terminal, JSON, HTML, and JUnit
+reports. It never contacts a model provider.
+
+## Supported coding agents
+
+| Agent | Prerequisite | Authentication | Adapter name |
+| --- | --- | --- | --- |
+| Codex | Install the Codex CLI | Sign in through Codex | `codex` |
+| Claude Code | Install Claude Code | Sign in through Claude Code | `claude-code` |
+| Gemini CLI | Install Gemini CLI | Sign in through Gemini CLI | `gemini-cli` |
+| OpenCode | Install OpenCode | Use its configured provider authentication | `opencode` |
+
+Run `repoarena agents detect` to see what is available. RepoArena normally uses
+the agent's existing authentication; it does not ask you to copy provider keys
+into RepoArena configuration. See the [agent guide](docs/agents.md) for setup and
+troubleshooting.
+
+## How it works
+
+1. **Mine real bugs.** Task discovery finds candidate fixes in repository history.
+2. **Reconstruct the task.** RepoArena records the buggy base, public prompt, and verification provenance.
+3. **Run clean attempts.** Every agent starts from a disposable workspace under explicit sandbox, network, timeout, and budget policy.
+4. **Verify privately.** Agent execution ends before hidden checks or reference material become accessible.
+5. **Compare evidence.** Terminal, JSON, HTML, JUnit, and the local UI consume the same canonical run result.
+
+## Local-first and BYOK
+
+- Local CLI and UI work without RepoArena Cloud or an account.
+- Model usage is paid directly through your existing provider credentials
+  (BYOK); RepoArena does not resell those tokens.
+- Local execution is the default, and cloud publication and hosted compute are
+  off unless explicitly configured.
+- Docker is optional. The five-minute workflow uses the local sandbox.
+
+## Local UI and optimizer
+
+`repoarena ui` starts a loopback-only product for repository readiness, tasks,
+runs, attempts, diffs, comparisons, cost/time, and optimizer results. The
+optimizer runs bounded searches through the same benchmark engine; it does not
+reinterpret results or bypass budgets.
+
+## GitHub Actions without RepoArena Cloud
+
+The bundled Action runs locally in GitHub Actions and publishes reports without
+a RepoArena account:
+
+```yaml
+name: RepoArena
+on: [workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1634ceea73d27597364c9af683
+      - uses: repoarena/repoarena@v1
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          agents: codex
+          fail-on-unsolved: "true"
+          reports: terminal,json,html,junit
+```
+
+Do not expose provider credentials to code from untrusted forks. Use
+`workflow_dispatch`, trusted branches, or the fork-safe pattern in the
+[GitHub Action guide](docs/github-action-oss.md).
+
+## Security model
+
+Repository code and coding agents are untrusted. Attempts run in disposable
+workspaces; private evaluators and historical reference fixes are structurally
+excluded from the agent phase and public reports. Local UI traffic is restricted
+to loopback. See [Security](SECURITY.md) and the [local product guide](docs/local-product.md).
 
 ## Documentation
 
-- [Local product](docs/local-product.md)
-- [Cloud operations](docs/cloud-core.md)
-- [GitHub integration](docs/github-integration.md)
-- [Billing and BYOK](docs/billing.md)
-- [Hosted runners](docs/hosted-runners.md)
-- [Production runbook](docs/operations/runbook.md)
-- [Disaster recovery](docs/operations/disaster-recovery.md)
-- [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md)
+- [Install and agent setup](docs/agents.md)
+- [Local product and UI](docs/local-product.md)
+- [GitHub Action for OSS](docs/github-action-oss.md)
+- [Example configuration](docs/examples/repoarena.config.yaml)
+- [Contributing](CONTRIBUTING.md)
+- [1.0 release notes](docs/release-notes-1.0.0.md)
 
-README badges are available only for deliberately published results. Public
-views are immutable narrow projections and never expose private evaluator data.
+Cloud, GitHub App, billing, and hosted runner documentation remains available
+for operators, but none is required for the local OSS workflow.
 
 RepoArena is licensed under [Apache-2.0](LICENSE).
