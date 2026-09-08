@@ -15,5 +15,7 @@ body:
     validations: { required: true }
   - type: textarea
     id: command
-    attributes: { label: Command and sanitized output, description: Do not include tokens, credentials, or private repository content. }
+    attributes:
+      label: Command and sanitized output
+      description: "Do not include tokens, credentials, or private repository content."
     validations: { required: true }

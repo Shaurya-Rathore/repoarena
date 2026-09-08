@@ -7,5 +7,5 @@ body:
     validations: { required: true }
   - type: textarea
     id: issue
-    attributes: { label: What should change? }
+    attributes: { label: "What should change?" }
     validations: { required: true }

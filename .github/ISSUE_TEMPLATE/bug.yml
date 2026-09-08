@@ -11,11 +11,15 @@ body:
     validations: { required: true }
   - type: input
     id: agent
-    attributes: { label: Agent and version, description: Use “not applicable” when relevant. }
+    attributes:
+      label: Agent and version
+      description: Use “not applicable” when relevant.
   - type: textarea
     id: command
     attributes: { label: Command and expected behavior }
     validations: { required: true }
   - type: textarea
     id: logs
-    attributes: { label: Sanitized output, description: Never paste credentials, private source, hidden evaluators, or reference fixes. }
+    attributes:
+      label: Sanitized output
+      description: "Never paste credentials, private source, hidden evaluators, or reference fixes."
