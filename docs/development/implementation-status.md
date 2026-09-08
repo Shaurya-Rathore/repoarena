@@ -1,10 +1,11 @@
 # RepoArena 1.0 implementation status
 
-Updated: 2026-09-07. A state of `VERIFIED` means the listed command passed in
+Updated: 2026-09-08. A state of `VERIFIED` means the listed command passed in
 this workspace; all other states are deliberately conservative.
 
 Canonical integrated product base: `integration/repoarena-1.0`.
 Release candidate branch: `release/repoarena-1.0`.
+OSS launch-polish branch: `release/oss-launch`.
 
 - `EXECUTION_ENGINE = VERIFIED`
 - `LOCAL_PRODUCT = VERIFIED`
@@ -14,6 +15,7 @@ Release candidate branch: `release/repoarena-1.0`.
 - `BILLING = VERIFIED`
 - `HOSTED_RUNNERS = VERIFIED`
 - `RELEASE_ENGINEERING = VERIFIED`
+- `OSS_ADOPTION_LAUNCH_POLISH = VERIFIED`
 
 **Execution engine: VERIFIED.** Detailed evidence is recorded in
 `docs/development/execution-engine-final-audit.md`.

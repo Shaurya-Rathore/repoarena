@@ -62,7 +62,7 @@ try {
 		"--prompt",
 		"Keep subject fixed",
 		"--verify",
-		`${process.execPath} -e process.exit(0)`,
+		`${process.execPath} -e "process.exit(0)"`,
 	]);
 	const env = {
 		...ossEnvironment,
@@ -91,7 +91,7 @@ try {
 		!terminal.includes("Solved: 1") ||
 		!terminal.includes("Next: repoarena ui")
 	)
-		throw new Error("Terminal benchmark summary is incomplete");
+		throw new Error(`Terminal benchmark summary is incomplete:\n${terminal}`);
 	const reports = await (await import("node:fs/promises")).readdir(
 		join(fixture, ".repoarena", "reports"),
 	);
