@@ -199,3 +199,36 @@ it("inspects the production adapter registry without credentials", async () => {
 	]);
 	expect(stdout).not.toMatch(/API_KEY|TOKEN=/);
 });
+
+it("guides a first-time user through initialization, detection, and missing tasks", async () => {
+	const root = await mkdtemp(join(tmpdir(), "ra-cli-first-run-"));
+	roots.push(root);
+	execFileSync("git", ["init", "-q"], { cwd: root });
+	execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+		cwd: root,
+	});
+	execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+	await writeFile(join(root, "README.md"), "fixture\n");
+	execFileSync("git", ["add", "."], { cwd: root });
+	execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
+	const cli = new URL("../dist/index.js", import.meta.url).pathname;
+	const initialized = await execute(process.execPath, [cli, "init", "--yes"], {
+		cwd: root,
+	});
+	expect(initialized.stdout).toContain("RepoArena initialized.");
+	expect(initialized.stdout).toContain("repoarena agents detect");
+	const detected = await execute(process.execPath, [cli, "agents", "detect"], {
+		cwd: root,
+		env: { PATH: "" },
+	});
+	expect(detected.stdout).toContain("codex");
+	expect(detected.stdout).toContain("existing authentication");
+	await expect(
+		execute(process.execPath, [cli, "run", "--agent", "codex"], {
+			cwd: root,
+			env: { PATH: "" },
+		}),
+	).rejects.toMatchObject({
+		stderr: expect.stringContaining("repoarena tasks discover"),
+	});
+});

@@ -5,7 +5,16 @@ import { join, resolve } from "node:path";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const fixture = await mkdtemp(join(tmpdir(), "repoarena-packed-cli-"));
-const run = (command, args, env = process.env) =>
+const ossEnvironment = { ...process.env };
+for (const name of Object.keys(ossEnvironment)) {
+	if (
+		/^(DATABASE_URL|STRIPE_|GITHUB_|REPOARENA_CLOUD|S3_|AWS_|HOSTED_)/.test(
+			name,
+		)
+	)
+		delete ossEnvironment[name];
+}
+const run = (command, args, env = ossEnvironment) =>
 	execFileSync(command, args, { cwd: fixture, env, encoding: "utf8" });
 try {
 	const tarball = (await import("node:fs/promises"))
@@ -16,6 +25,10 @@ try {
 	const packed = await tarball;
 	if (!packed) throw new Error("CLI release tarball is missing");
 	run("npm", ["init", "-y"]);
+	await writeFile(
+		join(fixture, ".gitignore"),
+		"node_modules/\n.repoarena/state/\n",
+	);
 	run("npm", [
 		"install",
 		"--ignore-scripts",
@@ -30,8 +43,16 @@ try {
 	const cli = join(fixture, "node_modules", ".bin", "repoarena");
 	if (run(cli, ["--version"]).trim() !== "1.0.0")
 		throw new Error("Packed CLI version mismatch");
-	run(cli, ["init", "--yes"]);
+	if (!run(cli, ["--help"]).includes("Local-first coding-agent benchmarks"))
+		throw new Error("Packed CLI help is unavailable");
+	const initialized = run(cli, ["init", "--yes"]);
+	if (!initialized.includes("repoarena doctor"))
+		throw new Error("Init guidance missing");
 	run(cli, ["doctor", "--json"]);
+	const agents = JSON.parse(run(cli, ["agents", "detect", "--json"]));
+	if (!agents.some((agent) => agent.id === "codex"))
+		throw new Error("Agent detection missing Codex");
+	JSON.parse(run(cli, ["tasks", "discover", "--json"]));
 	run(cli, [
 		"tasks",
 		"new",
@@ -44,7 +65,7 @@ try {
 		`${process.execPath} -e process.exit(0)`,
 	]);
 	const env = {
-		...process.env,
+		...ossEnvironment,
 		NODE_ENV: "test",
 		REPOARENA_TEST_ADAPTERS: "1",
 	};
@@ -55,12 +76,22 @@ try {
 			"--agent",
 			"fake-perfect",
 			"--report",
-			"json,html,junit",
+			"terminal,json,html,junit",
 			"--output",
 			".repoarena/reports",
 		],
 		env,
 	);
+	const terminal = run(
+		cli,
+		["run", "--agent", "fake-perfect", "--report", "terminal"],
+		env,
+	);
+	if (
+		!terminal.includes("Solved: 1") ||
+		!terminal.includes("Next: repoarena ui")
+	)
+		throw new Error("Terminal benchmark summary is incomplete");
 	const reports = await (await import("node:fs/promises")).readdir(
 		join(fixture, ".repoarena", "reports"),
 	);

@@ -12,6 +12,23 @@
 		"node": ">=24 <25"
 	},
 	"license": "Apache-2.0",
+	"description": "CI for AI coding agents—benchmark Codex, Claude Code, Gemini CLI, and OpenCode on real bugs from your repository.",
+	"keywords": [
+		"ai",
+		"coding-agents",
+		"benchmark",
+		"evals",
+		"ci",
+		"codex",
+		"claude-code",
+		"gemini"
+	],
+	"homepage": "https://github.com/repoarena/repoarena#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/repoarena/repoarena.git"
+	},
+	"bugs": { "url": "https://github.com/repoarena/repoarena/issues" },
 	"scripts": {
 		"build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.cjs",
 		"typecheck": "tsc -p tsconfig.json --noEmit",

@@ -20,6 +20,8 @@
 		"release:verify": "node scripts/release-verify.mjs",
 		"release:dry-run": "node scripts/release-dry-run.mjs",
 		"release:packed-cli": "node scripts/packed-cli-e2e.mjs",
+		"demo": "pnpm --filter repoarena build && node scripts/oss-demo.mjs",
+		"docs:check": "node scripts/check-doc-links.mjs",
 		"release:backup-restore": "node scripts/backup-restore-e2e.mjs",
 		"release:security": "node scripts/release-security.mjs",
 		"release:secret-scan": "secretlint '**/*' --secretlintignore .gitignore",

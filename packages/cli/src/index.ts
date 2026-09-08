@@ -309,10 +309,16 @@ program
 			created = true;
 		}
 		output(
-			{
-				config: created ? "created" : "unchanged",
-				paths: [configPath, join(directory, "tasks"), join(directory, "state")],
-			},
+			options.json
+				? {
+						config: created ? "created" : "unchanged",
+						paths: [
+							configPath,
+							join(directory, "tasks"),
+							join(directory, "state"),
+						],
+					}
+				: `RepoArena ${created ? "initialized" : "is already initialized"}.\nConfig: ${relative(root, configPath)}\n\nNext:\n  repoarena doctor\n  repoarena agents detect\n  repoarena tasks discover`,
 			options.json,
 		);
 	});
@@ -630,7 +636,16 @@ program
 				},
 			});
 		}
-		output(action === "inspect" ? values[0] : values, options.json);
+		if (options.json)
+			return output(action === "inspect" ? values[0] : values, true);
+		if (action === "inspect") return output(values[0]);
+		const rows = values.map(
+			(value) =>
+				`  ${value.id.padEnd(13)} ${value.available ? "ready" : "not found"}${value.version ? ` (${value.version})` : ""}`,
+		);
+		output(
+			`Coding agents\n${rows.join("\n")}\n\nRepoArena uses each agent CLI's existing authentication. Install and sign in to an unavailable agent, then run this command again.`,
+		);
 	});
 program
 	.command("run")
@@ -712,6 +727,13 @@ program
 					: {}),
 			});
 		}
+		if (!taskPlans.length)
+			throw new RepoArenaError(
+				"TASK_INVALID",
+				selected
+					? "No requested benchmark tasks were found. Run `repoarena tasks list` and check --tasks."
+					: "No benchmark tasks were found. Run `repoarena tasks discover`, then generate or create a task.",
+			);
 		const requested = options.agent as string[];
 		const plans: BenchmarkAgent[] = [];
 		if (options.agentCommand)
@@ -803,8 +825,16 @@ program
 			await writeFile(join(directory, `${run.id}.html`), toHtml(run));
 		if (formats.has("junit"))
 			await writeFile(join(directory, `${run.id}.xml`), toJunit(run));
-		if (formats.has("terminal") && !options.json) output(toTerminal(run));
-		else output(run, true);
+		if (formats.has("terminal") && !options.json) {
+			const reports = [
+				formats.has("json") ? join(directory, `${run.id}.json`) : null,
+				formats.has("html") ? join(directory, `${run.id}.html`) : null,
+				formats.has("junit") ? join(directory, `${run.id}.xml`) : null,
+			].filter((path): path is string => path !== null);
+			output(
+				`${toTerminal(run)}${reports.length ? `\nReports: ${reports.map((path) => relative(root, path)).join(", ")}` : ""}\nNext: repoarena ui`,
+			);
+		} else output(run, true);
 		if (
 			(options.ci || options.failOnUnsolved) &&
 			run.statistics.solved_count !== run.statistics.attempt_count
