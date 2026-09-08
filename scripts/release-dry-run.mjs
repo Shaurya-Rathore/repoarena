@@ -50,7 +50,7 @@ const manifest = {
 };
 await writeFile(
 	join(output, "manifest.json"),
-	`${JSON.stringify(manifest, null, 2)}\n`,
+	`${JSON.stringify(manifest, null, "\t")}\n`,
 );
 await writeFile(
 	join(output, "SHA256SUMS"),
