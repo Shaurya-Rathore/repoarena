@@ -74,13 +74,16 @@ try {
 	const baseCommit = run("git", ["rev-parse", "HEAD"]).trim();
 	const cli = join(workspace, "node_modules", ".bin", "repoarena");
 	const packagedVersion = run(cli, ["--version"]).trim();
-	const detection = JSON.parse(run(cli, ["agents", "detect", "--json"]));
+	const detection = JSON.parse(
+		run(cli, ["agents", "detect", "codex", "--json"]),
+	);
 	const inspection = JSON.parse(
 		run(cli, ["agents", "inspect", "codex", "--json"]),
 	);
 	let authReady = false;
 	try {
-		authReady = run("codex", ["login", "status"]).includes("Logged in");
+		run("codex", ["login", "status"]);
+		authReady = true;
 	} catch {
 		authReady = false;
 	}
