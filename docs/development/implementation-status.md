@@ -16,6 +16,7 @@ OSS launch-polish branch: `release/oss-launch`.
 - `HOSTED_RUNNERS = VERIFIED`
 - `RELEASE_ENGINEERING = VERIFIED`
 - `OSS_ADOPTION_LAUNCH_POLISH = VERIFIED`
+- `CODEX_LIVE_ADAPTER = VERIFIED`
 
 **Execution engine: VERIFIED.** Detailed evidence is recorded in
 `docs/development/execution-engine-final-audit.md`.
