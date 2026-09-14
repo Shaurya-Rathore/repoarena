@@ -7,7 +7,7 @@ const databaseEnvironment = { ...process.env };
 if (!databaseEnvironment.DATABASE_URL)
 	throw new Error("release:verify requires canonical DATABASE_URL");
 
-run("pg_isready", []);
+run("pg_isready", ["-d", process.env.DATABASE_URL]);
 run("pnpm", ["format:check"]);
 run("pnpm", ["lint"]);
 run("pnpm", ["typecheck"]);
