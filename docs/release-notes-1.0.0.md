@@ -14,6 +14,12 @@ for your codebase.
 - Search agent/model configurations with the budgeted optimizer.
 - Run benchmarks in CI with the bundled, fork-aware GitHub Action.
 
+The release-packaged CLI was also exercised against the real Codex CLI
+0.154.0 using one bounded task and the machine's existing Codex login. The
+adapter launched, edited the isolated workspace, completed public and hidden
+verification, and generated terminal, JSON, HTML, and JUnit reports. No
+credential was copied into RepoArena configuration or release evidence.
+
 Install after publication with `npm install --global repoarena`, or follow the
 [contributor setup](../CONTRIBUTING.md) from source. Start with the
 [five-minute quick start](../README.md#five-minute-quick-start).

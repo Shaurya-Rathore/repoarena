@@ -23,12 +23,12 @@
 		"claude-code",
 		"gemini"
 	],
-	"homepage": "https://github.com/repoarena/repoarena#readme",
+	"homepage": "https://github.com/Shaurya-Rathore/repoarena#readme",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/repoarena/repoarena.git"
+		"url": "git+https://github.com/Shaurya-Rathore/repoarena.git"
 	},
-	"bugs": { "url": "https://github.com/repoarena/repoarena/issues" },
+	"bugs": { "url": "https://github.com/Shaurya-Rathore/repoarena/issues" },
 	"scripts": {
 		"build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.cjs",
 		"typecheck": "tsc -p tsconfig.json --noEmit",

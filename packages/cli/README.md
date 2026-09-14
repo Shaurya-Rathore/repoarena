@@ -19,4 +19,4 @@ authentication, so model costs remain BYOK and are paid directly to that
 provider. Run `repoarena --help` for task generation, benchmarks, terminal/JSON/
 HTML/JUnit reports, optimization, and the loopback-only local UI.
 
-Project documentation: <https://github.com/repoarena/repoarena#readme>
+Project documentation: <https://github.com/Shaurya-Rathore/repoarena#readme>

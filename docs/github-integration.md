@@ -53,7 +53,7 @@ permissions:
   id-token: write # only for OIDC cloud publication
 steps:
   - uses: actions/checkout@v4
-  - uses: repoarena/repoarena/actions/repoarena@v1
+  - uses: Shaurya-Rathore/repoarena@v1
     with:
       agents: codex
       runs-per-task: "2"

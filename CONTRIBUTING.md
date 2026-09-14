@@ -9,7 +9,7 @@ and docs without any SaaS or provider credentials.
 Requirements: Git, Node.js 24, and pnpm 9.15.0 through Corepack.
 
 ```sh
-git clone https://github.com/repoarena/repoarena.git
+git clone https://github.com/Shaurya-Rathore/repoarena.git
 cd repoarena
 corepack enable
 pnpm install --frozen-lockfile
