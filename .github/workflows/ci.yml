@@ -22,8 +22,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://repoarena:repoarena@127.0.0.1:5432/repoarena_test
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1634ceea73d27597364c9af683
-      - uses: actions/setup-node@1e60f620b9541dca151540d0c24ee89e2d19e259
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
           cache: pnpm
