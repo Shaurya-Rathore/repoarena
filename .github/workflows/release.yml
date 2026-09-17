@@ -33,6 +33,47 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Install PostgreSQL 18 client
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates postgresql-common
+
+          sudo install -d /usr/share/postgresql-common/pgdg
+
+          sudo curl             --fail             --silent             --show-error             --location             -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc             https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+          . /etc/os-release
+
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/pgdg.sources
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: ${VERSION_CODENAME}-pgdg
+          Components: main
+          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          EOF
+
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
+          /usr/lib/postgresql/18/bin/pg_dump --version
+          /usr/lib/postgresql/18/bin/pg_restore --version
+          /usr/lib/postgresql/18/bin/createdb --version
+          /usr/lib/postgresql/18/bin/dropdb --version
+
+      - name: Verify PostgreSQL client
+        run: |
+          which pg_dump
+          which pg_restore
+          which createdb
+          which dropdb
+          pg_dump --version
+          pg_restore --version
+
       - run: pnpm release:verify
       - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
