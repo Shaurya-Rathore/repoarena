@@ -11,7 +11,7 @@ const source = configured.toString();
 const restoreUrl = new URL(source);
 restoreUrl.pathname = "/repoarena_restore_test";
 const restore = restoreUrl.toString();
-const admin = "postgres:///postgres";
+const admin = process.env.DATABASE_URL;
 const temporary = await mkdtemp(join(tmpdir(), "repoarena-backup-"));
 const dump = join(temporary, "repoarena.dump");
 const run = (command, args, options = {}) =>
